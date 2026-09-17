@@ -1,4 +1,5 @@
 import type { Server, Socket } from "socket.io";
+import { SOCKET_EVENTS } from "../../lib/constants.js";
 import { toErrorResponse } from "../../lib/error-handler.js";
 import { logger } from "../../lib/logger.js";
 import { requireSocketAuth } from "../auth/auth.middleware.js";
@@ -25,10 +26,10 @@ export function registerVoiceSocket(io: Server) {
   io.use(requireSocketAuth);
   io.on("connection", (socket) => {
     logger.info(`socket: ${socket.data.username} connected (${socket.id})`);
-    on(io, socket, "voice:join", voiceController.join);
-    on(io, socket, "voice:leave", voiceController.leave);
-    on(io, socket, "voice:signal", voiceController.signal);
-    on(io, socket, "voice:screen", voiceController.screen);
+    on(io, socket, SOCKET_EVENTS.voiceJoin, voiceController.join);
+    on(io, socket, SOCKET_EVENTS.voiceLeave, voiceController.leave);
+    on(io, socket, SOCKET_EVENTS.voiceSignal, voiceController.signal);
+    on(io, socket, SOCKET_EVENTS.voiceScreen, voiceController.screen);
     socket.on("disconnecting", (reason) => {
       logger.info(`socket: ${socket.data.username} disconnected (${reason})`);
       voiceController.leave(io, socket);
