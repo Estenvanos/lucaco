@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Lucaco — teste de voz</title>
+    <style>
+      body { font-family: system-ui, sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1rem; background: #1e1f22; color: #dbdee1; }
+      section { background: #2b2d31; border-radius: 8px; padding: 1rem; margin-bottom: 1rem; }
+      input, button { font: inherit; padding: .4rem .6rem; margin: .2rem; border-radius: 4px; border: 1px solid #444; background: #383a40; color: inherit; }
+      button { cursor: pointer; background: #5865f2; border: 0; color: #fff; }
+      button:disabled { opacity: .5; cursor: default; }
+      #peers li { margin: .2rem 0; }
+      #videos { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: .5rem; }
+      video { width: 100%; background: #000; border-radius: 6px; }
+      #status { color: #f0b232; min-height: 1.2em; }
+      [hidden] { display: none !important; }
+    </style>
+  </head>
+  <body>
+    <h1>Lucaco — voz + aba</h1>
+    <p id="status"></p>
+
+    <section id="auth">
+      <input id="username" placeholder="username (sign up)" />
+      <input id="login" placeholder="email ou username" />
+      <input id="password" type="password" placeholder="senha" />
+      <button id="sign-in">Entrar</button>
+      <button id="sign-up">Criar conta</button>
+    </section>
+
+    <section id="call" hidden>
+      <p>Logado como <b id="me"></b> <button id="logout">Sair</button></p>
+      <input id="room" placeholder="sala" value="teste" />
+      <button id="join">Entrar na voz</button>
+      <button id="leave" disabled>Sair da voz</button>
+      <button id="mute" disabled>Mutar</button>
+      <button id="share" disabled>Compartilhar aba</button>
+      <h3>Na sala</h3>
+      <ul id="peers"></ul>
+      <div id="videos"></div>
+    </section>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
