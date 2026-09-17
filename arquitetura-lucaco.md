@@ -96,6 +96,93 @@ Regra de ouro da separação: **a API decide, o SFU transporta.** O SFU nunca co
 
 Limite de módulo obrigatório: `messages` **nunca** consulta as tabelas de `channels`/`servers` diretamente — usa uma interface (`channelsService.canView(userId, channelId)`).
 
+> No repositório atual as pastas são `backend/` (o `api` acima) e `frontend/`; `/media` e `/packages/shared` ainda não existem.
+
+### 4.1 Frontend (`frontend/`)
+
+**Stack**: Vite + React + TypeScript, TanStack Query, React Router, Zod, Socket.IO client.
+
+**Decisão central**: todo estado que vem da API é estado do TanStack Query — não existe store global espelhando dados do servidor. O que sobra de estado local é de UI (aba aberta, modal, rascunho de mensagem) e mora em `useState` dentro de um hook de página.
+
+**Consequência dessa decisão**: `useEffect` é proibido no projeto. As razões clássicas para usá-lo já têm dono:
+
+| Necessidade | Solução no projeto |
+|---|---|
+| Buscar dados | `useQuery` em `services/<modulo>/<modulo>.api.ts` |
+| Gravar/alterar dados | `useMutation` + `queryClient.invalidateQueries(<modulo>Keys...)` |
+| Valor derivado de props/estado | calcular no render (e `useMemo` só se medir custo) |
+| Reagir a clique/submit/navegação | handler do evento |
+| Resetar estado quando o id muda | `key={id}` no componente |
+| Ler/medir DOM | ref callback |
+| Assinar fonte externa (socket, `MediaStream`, `matchMedia`) | `useSyncExternalStore` sobre um wrapper em `services/` |
+| Rodar algo antes da página montar | `loader` da rota (React Router) |
+
+Se aparecer um caso que nenhuma linha acima cobre, o caso vira discussão de arquitetura — não vira `useEffect` solto num componente.
+
+**Camadas e a regra de cada uma**
+
+```
+frontend/src/
+  main.tsx                     React root + QueryClientProvider + RouterProvider
+  routes.tsx                   árvore de rotas: layout -> pages
+  lib/
+    api.ts                     httpClient: baseURL, JSON, Authorization: Bearer,
+                               access token em memória, retry único em 401 via POST /auth/refresh,
+                               erro normalizado ({ status, message }) igual ao toErrorResponse do backend
+    query-client.ts            QueryClient (staleTime, retry, refetchOnWindowFocus)
+    socket.ts                  conexão Socket.IO autenticada (quando o módulo voice migrar)
+    utils.ts                   funções puras sem React
+  constants/
+    routes.ts                  ROUTES do app  (única fonte de path para <Link> e navigate)
+    endpoints.ts               ENDPOINTS da API (única fonte de path para o httpClient)
+    socket-events.ts           SOCKET_EVENTS espelhando lib/constants.ts do backend
+    limits.ts                  limites espelhados do backend (IMAGE_MAX_BYTES, tamanhos de senha/username)
+  services/<modulo>/
+    <modulo>.keys.ts           key factory: as() / list() / detail(id)
+    <modulo>.api.ts            funções de request + hooks useQuery/useMutation
+  hooks/                       estado de página e de UI; sem fetch, sem JSX
+  pages/<modulo>/<Nome>Page.tsx   só composição: hooks + componentes
+  layouts/
+    RootLayout.tsx             app autenticado: guarda de sessão, shell (sidebar de servers,
+                               lista de canais, header) e <Outlet/>
+    AuthLayout.tsx             sign-in / sign-up: card centralizado, sem shell
+  components/
+    shared/                    Button, Input, Modal, Avatar, Spinner, ErrorState...
+    <feature>/                 componentes daquela feature (ex.: channel/MessageList.tsx)
+  schemas/<modulo>.schema.ts   Zod dos formulários (espelha o schema do backend)
+  types/<modulo>.types.ts      todos os tipos/interfaces, inclusive props de componente
+```
+
+Fluxo de uma tela, de baixo para cima:
+
+```
+constants/endpoints.ts -> services/friends/friends.api.ts (useQuery com friendsKeys.list())
+                       -> hooks/useFriendsPage.ts (filtro, aba selecionada, handlers)
+                       -> pages/friends/FriendsPage.tsx (composição)
+                       -> components/friends/FriendCard.tsx + components/shared/EmptyState.tsx
+```
+
+Módulos do frontend espelham os do backend: `auth`, `users`, `friends`, `servers`, `channels`, `messages`, `voice`, `media`.
+
+**Rotas e layouts**
+
+```
+/                      RootLayout   (requer sessão; redireciona para /sign-in sem ela)
+  /me                  DMs e amigos
+  /servers/:serverId/channels/:channelId
+  /settings
+/sign-in               AuthLayout
+/sign-up               AuthLayout
+```
+
+**Autenticação no cliente**: o access token fica em memória dentro de `lib/api.ts` (nunca em `localStorage`, que é legível por XSS). O refresh é o cookie httpOnly com `path=/auth`, então o navegador o envia sozinho em `POST /auth/refresh`; o front nunca o lê. Ao carregar o app, a rota raiz chama `/auth/refresh` uma vez para recuperar a sessão. Um 401 em qualquer request dispara um único refresh e repete o request original; se o refresh falhar, limpa o cache do Query e manda para `/sign-in`.
+
+**Validação em duas camadas**: `schemas/` existe para feedback imediato no formulário. O backend revalida tudo em `<modulo>.schema.ts` — nenhuma regra de segurança depende do schema do cliente.
+
+**E2E**: cifra e decifra ficam no cliente, em `services/messages/` (e futuramente `lib/crypto.ts`). Nenhuma chave privada sai do dispositivo, e nada cifrado passa por TanStack Query em texto claro — o que entra no cache já é o texto decifrado só em memória.
+
+**Constantes duplicadas entre back e front** (`limits.ts`, `socket-events.ts`) são cópias manuais enquanto não existir `packages/shared`. Divergiu, quebra teste de integração; o backend continua sendo a autoridade.
+
 ---
 
 ## 5. Modelo de dados — PostgreSQL

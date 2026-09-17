@@ -1,11 +1,10 @@
 import type { Request, Response } from "express";
 import { env } from "../../env.js";
+import { REFRESH_COOKIE, REFRESH_COOKIE_PATH } from "../../lib/constants.js";
 import { HttpError } from "../../lib/http-error.js";
 import { toPublicUser } from "../users/users.services.js";
 import { refreshTokenSchema, signInSchema, signUpSchema } from "./auth.schema.js";
 import * as authService from "./auth.services.js";
-
-const REFRESH_COOKIE = "refresh_token";
 
 const meta = (req: Request) => ({ userAgent: req.get("user-agent"), ip: req.ip });
 
@@ -18,7 +17,7 @@ function setRefreshCookie(res: Response, token: string, expires: Date) {
     httpOnly: true,
     secure: CROSS_SITE,
     sameSite: CROSS_SITE ? "none" : "strict",
-    path: "/auth",
+    path: REFRESH_COOKIE_PATH,
     expires,
   });
 }
@@ -29,7 +28,7 @@ const clearRefreshCookie = (res: Response) =>
     httpOnly: true,
     secure: CROSS_SITE,
     sameSite: CROSS_SITE ? "none" : "strict",
-    path: "/auth",
+    path: REFRESH_COOKIE_PATH,
   });
 
 function readRefreshCookie(req: Request) {

@@ -1,0 +1,108 @@
+import type { Role } from "../../generated/prisma/client.js";
+import { PERMISSIONS, type PermissionName } from "../../lib/constants.js";
+import { HttpError } from "../../lib/http-error.js";
+import { prisma } from "../../lib/prisma.js";
+import * as serversService from "../servers/servers.services.js";
+import type { CreateRoleInput, UpdateRoleInput } from "./roles.schema.js";
+
+const toBitfield = (names: PermissionName[]) => names.reduce((acc, n) => acc | PERMISSIONS[n], 0n);
+
+const toNames = (permissions: bigint) =>
+  (Object.keys(PERMISSIONS) as PermissionName[]).filter((n) => (permissions & PERMISSIONS[n]) !== 0n);
+
+/** BigInt is not JSON-serializable, so permissions leave the API as names. */
+export const toPublicRole = (role: Role) => ({
+  id: role.id,
+  serverId: role.serverId,
+  name: role.name,
+  color: role.color,
+  position: role.position,
+  isDefault: role.isDefault,
+  permissions: toNames(role.permissions),
+  createdAt: role.createdAt,
+});
+
+export async function list(serverId: string, userId: string) {
+  await serversService.getMember(serverId, userId);
+  const roles = await prisma.role.findMany({
+    where: { serverId },
+    orderBy: [{ position: "desc" }, { createdAt: "asc" }],
+  });
+  return roles.map(toPublicRole);
+}
+
+async function getRole(serverId: string, roleId: string) {
+  const role = await prisma.role.findUnique({ where: { id: roleId } });
+  if (!role || role.serverId !== serverId) throw new HttpError(404, "Role not found");
+  return role;
+}
+
+/** Nobody can grant a permission they do not hold themselves, which blocks self-escalation. */
+async function requireGrantable(serverId: string, userId: string, names: PermissionName[]) {
+  const mine = await serversService.requirePermission(serverId, userId, "MANAGE_ROLES");
+  const missing = names.filter((n) => !serversService.has(mine, n));
+  if (missing.length) throw new HttpError(403, `Cannot grant: ${missing.join(", ")}`);
+}
+
+export async function create(serverId: string, userId: string, input: CreateRoleInput) {
+  await requireGrantable(serverId, userId, input.permissions);
+  const role = await prisma.role.create({
+    data: {
+      serverId,
+      name: input.name,
+      color: input.color ?? null,
+      position: input.position ?? 0,
+      permissions: toBitfield(input.permissions),
+    },
+  });
+  return toPublicRole(role);
+}
+
+export async function update(
+  serverId: string,
+  roleId: string,
+  userId: string,
+  input: UpdateRoleInput,
+) {
+  await requireGrantable(serverId, userId, input.permissions ?? []);
+  const current = await getRole(serverId, roleId);
+  if (current.isDefault && input.name && input.name !== current.name) {
+    throw new HttpError(409, "The @everyone role cannot be renamed");
+  }
+  const role = await prisma.role.update({
+    where: { id: roleId },
+    data: {
+      name: input.name,
+      color: input.color,
+      position: input.position,
+      permissions: input.permissions ? toBitfield(input.permissions) : undefined,
+    },
+  });
+  return toPublicRole(role);
+}
+
+export async function remove(serverId: string, roleId: string, userId: string) {
+  await serversService.requirePermission(serverId, userId, "MANAGE_ROLES");
+  const role = await getRole(serverId, roleId);
+  if (role.isDefault) throw new HttpError(409, "The @everyone role cannot be deleted");
+  await prisma.role.delete({ where: { id: roleId } });
+}
+
+export async function assign(serverId: string, roleId: string, memberId: string, userId: string) {
+  const role = await getRole(serverId, roleId);
+  await requireGrantable(serverId, userId, toNames(role.permissions));
+  if (role.isDefault) throw new HttpError(409, "@everyone applies to every member already");
+  const member = await prisma.serverMember.findUnique({ where: { id: memberId } });
+  if (!member || member.serverId !== serverId) throw new HttpError(404, "Member not found");
+  await prisma.memberRole.upsert({
+    where: { memberId_roleId: { memberId, roleId } },
+    create: { memberId, roleId },
+    update: {},
+  });
+}
+
+export async function unassign(serverId: string, roleId: string, memberId: string, userId: string) {
+  const role = await getRole(serverId, roleId);
+  await requireGrantable(serverId, userId, toNames(role.permissions));
+  await prisma.memberRole.deleteMany({ where: { memberId, roleId } });
+}

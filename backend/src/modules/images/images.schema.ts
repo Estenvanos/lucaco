@@ -5,6 +5,7 @@ export const IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 // Each preset maps to its own storage folder: images/<folder>/<ownerId>/<id>.webp
 export const IMAGE_PRESETS = {
   avatars: { width: 512, height: 512, quality: 80 },
+  servers: { width: 256, height: 256, quality: 80 },
 } as const;
 
 export type ImageFolder = keyof typeof IMAGE_PRESETS;

@@ -8,15 +8,21 @@ datasource db {
 }
 
 model User {
-  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  username     String    @unique @db.VarChar(32)
-  email        String    @unique @db.VarChar(255)
-  passwordHash String    @map("password_hash")
-  displayName  String?   @map("display_name") @db.VarChar(64)
-  avatarUrl    String?   @map("avatar_url") // object storage key
-  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz
-  sessions     Session[]
+  id              String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  username        String         @unique @db.VarChar(32)
+  email           String         @unique @db.VarChar(255)
+  passwordHash    String         @map("password_hash")
+  displayName     String?        @map("display_name") @db.VarChar(64)
+  avatarUrl       String?        @map("avatar_url") // object storage key
+  createdAt       DateTime       @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime       @updatedAt @map("updated_at") @db.Timestamptz
+  sessions        Session[]
+  ownedServers    Server[]
+  memberships     ServerMember[]
+  friendshipsLow  Friendship[]   @relation("friendshipLow")
+  friendshipsHigh Friendship[]   @relation("friendshipHigh")
+  friendRequests  Friendship[]   @relation("friendshipRequester")
+  friendBlocks    Friendship[]   @relation("friendshipBlocker")
 
   @@map("users")
 }
@@ -34,4 +40,91 @@ model Session {
 
   @@index([userId])
   @@map("sessions")
+}
+
+model Server {
+  id        String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ownerId   String         @map("owner_id") @db.Uuid
+  name      String         @db.VarChar(100)
+  iconUrl   String?        @map("icon_url") // object storage key
+  createdAt DateTime       @default(now()) @map("created_at") @db.Timestamptz
+  owner     User           @relation(fields: [ownerId], references: [id])
+  members   ServerMember[]
+  roles     Role[]
+
+  @@index([ownerId])
+  @@map("servers")
+}
+
+model ServerMember {
+  id       String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  serverId String       @map("server_id") @db.Uuid
+  userId   String       @map("user_id") @db.Uuid
+  nickname String?      @db.VarChar(64)
+  joinedAt DateTime     @default(now()) @map("joined_at") @db.Timestamptz
+  server   Server       @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  user     User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roles    MemberRole[]
+
+  @@unique([serverId, userId])
+  @@index([serverId])
+  @@index([userId])
+  @@map("server_members")
+}
+
+/// permissions is a bitfield; see PERMISSIONS in lib/constants.ts. isDefault marks @everyone.
+model Role {
+  id          String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  serverId    String       @map("server_id") @db.Uuid
+  name        String       @db.VarChar(64)
+  color       Int?
+  permissions BigInt       @default(0)
+  position    Int          @default(0) // hierarchy
+  isDefault   Boolean      @default(false) @map("is_default")
+  createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamptz
+  server      Server       @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  members     MemberRole[]
+
+  @@index([serverId])
+  @@map("roles")
+}
+
+model MemberRole {
+  memberId String       @map("member_id") @db.Uuid
+  roleId   String       @map("role_id") @db.Uuid
+  member   ServerMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  role     Role         @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([memberId, roleId])
+  @@map("member_roles")
+}
+
+enum FriendshipStatus {
+  pending
+  accepted
+  blocked
+
+  @@map("friendship_status")
+}
+
+/// One row per relationship in canonical order (userLowId < userHighId), which makes the pair unique.
+/// requestedBy keeps the direction of the invite; blockedBy is set only when status is blocked.
+model Friendship {
+  id          String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userLowId   String           @map("user_low_id") @db.Uuid
+  userHighId  String           @map("user_high_id") @db.Uuid
+  status      FriendshipStatus @default(pending)
+  requestedBy String           @map("requested_by") @db.Uuid
+  blockedBy   String?          @map("blocked_by") @db.Uuid
+  createdAt   DateTime         @default(now()) @map("created_at") @db.Timestamptz
+  respondedAt DateTime?        @map("responded_at") @db.Timestamptz
+  userLow     User             @relation("friendshipLow", fields: [userLowId], references: [id], onDelete: Cascade)
+  userHigh    User             @relation("friendshipHigh", fields: [userHighId], references: [id], onDelete: Cascade)
+  requester   User             @relation("friendshipRequester", fields: [requestedBy], references: [id])
+  blocker     User?            @relation("friendshipBlocker", fields: [blockedBy], references: [id])
+
+  @@unique([userLowId, userHighId])
+  @@index([userLowId, status])
+  @@index([userHighId, status])
+  @@map("friendships")
 }
