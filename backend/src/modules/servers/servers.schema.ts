@@ -9,6 +9,11 @@ export const serverIdSchema = z.object({
   serverId: z.string().uuid(),
 });
 
+export const memberParamsSchema = z.object({
+  serverId: z.string().uuid(),
+  userId: z.string().uuid(),
+});
+
 export const inviteCodeSchema = z.object({
   code: z.string().regex(/^[A-Za-z0-9_-]{12}$/, "Invalid invite code"),
 });

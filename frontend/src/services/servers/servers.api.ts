@@ -5,7 +5,13 @@ import { request } from "../../lib/api";
 import { queryClient } from "../../lib/query-client";
 import type {
   Channel,
+  ChannelFormValues,
+  ChannelOverwrites,
   CreateChannelInput,
+  Overwrite,
+  OverwriteTarget,
+  PermissionName,
+  Role,
   CreateServerInput,
   DiscoveredServer,
   JoinServerInput,
@@ -80,12 +86,96 @@ export const useMembers = (serverId: string) =>
     queryFn: () => request<ServerMember[]>(ENDPOINTS.servers.members(serverId)),
   });
 
+export const useRoles = (serverId: string) =>
+  useQuery({
+    queryKey: serversKeys.roles(serverId),
+    queryFn: () => request<Role[]>(ENDPOINTS.servers.roles(serverId)),
+  });
+
+/** What the current user holds server-wide (ADMINISTRATOR already expanded to everything). */
+export const useServerPermissions = (serverId: string) =>
+  useQuery({
+    queryKey: serversKeys.permissions(serverId),
+    queryFn: () => request<{ permissions: PermissionName[] }>(ENDPOINTS.servers.permissions(serverId)),
+    select: (data) => data.permissions,
+    enabled: Boolean(serverId),
+  });
+
+const invalidateMembers = (serverId: string) =>
+  queryClient.invalidateQueries({ queryKey: serversKeys.members(serverId) });
+
+/** Removes the member; they can join again. */
+export const useKickMember = (serverId: string) =>
+  useMutation({
+    mutationFn: (userId: string) => request(ENDPOINTS.servers.member(serverId, userId), { method: "DELETE" }),
+    onSuccess: () => invalidateMembers(serverId),
+  });
+
+/** Removes the member for good. */
+export const useBanMember = (serverId: string) =>
+  useMutation({
+    mutationFn: (userId: string) => request(ENDPOINTS.servers.ban(serverId, userId), { method: "PUT" }),
+    onSuccess: () => invalidateMembers(serverId),
+  });
+
+/** Owner only: grants or drops the auto-created "Admin" role. */
+export const useSetAdmin = (serverId: string) =>
+  useMutation({
+    mutationFn: ({ memberId, admin }: { memberId: string; admin: boolean }) =>
+      request(ENDPOINTS.servers.admin(serverId, memberId), { method: admin ? "PUT" : "DELETE" }),
+    onSuccess: () =>
+      Promise.all([
+        invalidateMembers(serverId),
+        queryClient.invalidateQueries({ queryKey: serversKeys.roles(serverId) }),
+      ]),
+  });
+
+export const useChannelPermissions = (channelId: string | null) =>
+  useQuery({
+    queryKey: serversKeys.channelPermissions(channelId ?? ""),
+    queryFn: () => request<ChannelOverwrites>(ENDPOINTS.channels.permissions(channelId!)),
+    enabled: Boolean(channelId),
+  });
+
+// Channels carry the caller's resolved permissions, so any overwrite change reshapes the list.
+const invalidateChannels = (serverId: string) =>
+  queryClient.invalidateQueries({ queryKey: serversKeys.channels(serverId) });
+
+/** A new channel and its overwrites travel in one request: the API stores them in one transaction. */
 export const useCreateChannel = (serverId: string) =>
   useMutation({
     mutationFn: (input: CreateChannelInput) =>
-      request<Channel>(ENDPOINTS.servers.channels(serverId), {
-        method: "POST",
-        body: { ...input, type: "text" },
-      }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: serversKeys.channels(serverId) }),
+      request<Channel>(ENDPOINTS.servers.channels(serverId), { method: "POST", body: input }),
+    onSuccess: () => invalidateChannels(serverId),
+  });
+
+export const useUpdateChannel = (serverId: string, channelId: string) =>
+  useMutation({
+    mutationFn: (input: ChannelFormValues) =>
+      request<Channel>(ENDPOINTS.channels.detail(channelId), { method: "PATCH", body: input }),
+    onSuccess: () => invalidateChannels(serverId),
+  });
+
+export const useDeleteChannel = (serverId: string, channelId: string) =>
+  useMutation({
+    mutationFn: () => request(ENDPOINTS.channels.detail(channelId), { method: "DELETE" }),
+    onSuccess: () => invalidateChannels(serverId),
+  });
+
+/** Writes the changed overwrites one by one; `allow` and `deny` both empty removes one. */
+export const useSaveChannelPermissions = (serverId: string, channelId: string) =>
+  useMutation({
+    mutationFn: async (changes: { target: OverwriteTarget; overwrite: Overwrite }[]) => {
+      for (const { target, overwrite } of changes) {
+        const endpoint =
+          target.kind === "role"
+            ? ENDPOINTS.channels.rolePermission(channelId, target.id)
+            : ENDPOINTS.channels.memberPermission(channelId, target.id);
+        await request(endpoint, { method: "PUT", body: overwrite });
+      }
+    },
+    onSettled: () => {
+      invalidateChannels(serverId);
+      queryClient.invalidateQueries({ queryKey: serversKeys.channelPermissions(channelId) });
+    },
   });

@@ -15,6 +15,7 @@ import { ensureBucket } from "./lib/storage.js";
 import { requireSocketAuth } from "./modules/auth/auth.middleware.js";
 import { authRouter } from "./modules/auth/auth.routes.js";
 import { channelsRouter } from "./modules/channels/channels.routes.js";
+import { mediaRouter } from "./modules/media/media.routes.js";
 import { messagesRouter } from "./modules/messages/messages.routes.js";
 import { registerMessagesSocket } from "./modules/messages/messages.routes.js";
 import { usersRouter } from "./modules/users/users.routes.js";
@@ -48,6 +49,7 @@ app.use("/friends", friendsRouter);
 app.use("/notifications", notificationsRouter);
 app.use("/channels", channelsRouter);
 app.use("/messages", messagesRouter);
+app.use("/media", mediaRouter);
 app.use(notFoundHandler);
 app.use(errorHandler);
 

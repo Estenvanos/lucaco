@@ -10,6 +10,10 @@ export const messagesRouter = Router();
 messagesRouter.get("/", requireAuth, messagesController.history);
 messagesRouter.get("/conversations", requireAuth, messagesController.conversations);
 messagesRouter.post("/read", requireAuth, messagesController.markRead);
+// Sender keys of a server text channel (arquitetura-lucaco.md 7.2).
+messagesRouter.get("/channels/:channelId/keys", requireAuth, messagesController.channelKeys);
+messagesRouter.post("/channels/:channelId/keys", requireAuth, messagesController.createEpoch);
+messagesRouter.post("/channels/:channelId/keys/:epoch/shares", requireAuth, messagesController.addShares);
 
 export function registerMessagesSocket(io: Server) {
   io.on("connection", (socket) => {

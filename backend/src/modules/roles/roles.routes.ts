@@ -6,6 +6,9 @@ export const rolesRouter = Router({ mergeParams: true });
 
 rolesRouter.get("/", rolesController.list);
 rolesRouter.post("/", rolesController.create);
+// Literal before /:roleId, or "admin" matches as a role id.
+rolesRouter.put("/admin/members/:memberId", rolesController.grantAdmin);
+rolesRouter.delete("/admin/members/:memberId", rolesController.revokeAdmin);
 rolesRouter.patch("/:roleId", rolesController.update);
 rolesRouter.delete("/:roleId", rolesController.remove);
 rolesRouter.put("/:roleId/members/:memberId", rolesController.assign);

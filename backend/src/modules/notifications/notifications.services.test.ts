@@ -21,7 +21,9 @@ const alice = { id: ALICE, username: "alice", displayName: null, avatarUrl: null
 
 const getProfiles = mock();
 getProfiles.mockImplementation(async () => new Map([[ALICE, alice]]));
-jest.unstable_mockModule("../users/users.services.js", () => ({ getProfiles }));
+const isMuted = mock();
+isMuted.mockResolvedValue(false);
+jest.unstable_mockModule("../users/users.services.js", () => ({ getProfiles, isMuted }));
 
 const notifications = await import("./notifications.services.js");
 
@@ -52,13 +54,22 @@ describe("notify", () => {
 
     expect(emitToUser).toHaveBeenCalledTimes(1);
     expect(emitToUser).toHaveBeenCalledWith(BOB, "notification:new", result);
-    expect(result.owner).toEqual(alice);
+    expect(result?.owner).toEqual(alice);
   });
 
   it("never sends the owner's email to the receiver", async () => {
     notification.create.mockResolvedValue(row());
     const result = await notifications.notify({ tag: "friend_accepted", title: "t", ownerId: ALICE, receiverId: BOB });
-    expect(result.owner).not.toHaveProperty("email");
+    expect(result?.owner).not.toHaveProperty("email");
+  });
+
+  it("drops it when the receiver muted the owner", async () => {
+    isMuted.mockResolvedValueOnce(true);
+
+    await expect(notifications.notify({ tag: "new_message", title: "t", ownerId: ALICE, receiverId: BOB })).resolves.toBeNull();
+    expect(isMuted).toHaveBeenCalledWith(BOB, ALICE);
+    expect(notification.create).not.toHaveBeenCalled();
+    expect(emitToUser).not.toHaveBeenCalled();
   });
 });
 

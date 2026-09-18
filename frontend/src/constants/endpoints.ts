@@ -15,18 +15,35 @@ export const ENDPOINTS = {
     settings: "/users/me/settings",
     myKey: "/users/me/keys",
     key: (userId: string) => `/users/${userId}/key`,
+    mute: (userId: string) => `/users/me/mutes/${userId}`,
   },
   friends: {
     root: "/friends",
     pending: "/friends?status=pending",
     accept: (userId: string) => `/friends/${userId}/accept`,
     detail: (userId: string) => `/friends/${userId}`,
+    block: (userId: string) => `/friends/${userId}/block`,
   },
   messages: {
     conversations: "/messages/conversations",
     history: (peerId: string, before?: string) =>
       `/messages?${new URLSearchParams({ peerId, ...(before && { before }) })}`,
+    channelHistory: (channelId: string, before?: string) =>
+      `/messages?${new URLSearchParams({ channelId, ...(before && { before }) })}`,
     read: "/messages/read",
+    channelKeys: (channelId: string) => `/messages/channels/${channelId}/keys`,
+    channelShares: (channelId: string, epoch: number) => `/messages/channels/${channelId}/keys/${epoch}/shares`,
+  },
+  channels: {
+    detail: (channelId: string) => `/channels/${channelId}`,
+    permissions: (channelId: string) => `/channels/${channelId}/permissions`,
+    rolePermission: (channelId: string, roleId: string) => `/channels/${channelId}/permissions/roles/${roleId}`,
+    memberPermission: (channelId: string, memberId: string) =>
+      `/channels/${channelId}/permissions/members/${memberId}`,
+  },
+  media: {
+    root: "/media",
+    detail: (mediaId: string) => `/media/${mediaId}`,
   },
   notifications: {
     root: "/notifications",
@@ -41,6 +58,11 @@ export const ENDPOINTS = {
     image: (serverId: string, kind: "icon" | "banner") => `/servers/${serverId}/${kind}`,
     members: (serverId: string) => `/servers/${serverId}/members`,
     channels: (serverId: string) => `/servers/${serverId}/channels`,
+    roles: (serverId: string) => `/servers/${serverId}/roles`,
+    permissions: (serverId: string) => `/servers/${serverId}/permissions`,
+    member: (serverId: string, userId: string) => `/servers/${serverId}/members/${userId}`,
+    ban: (serverId: string, userId: string) => `/servers/${serverId}/bans/${userId}`,
+    admin: (serverId: string, memberId: string) => `/servers/${serverId}/roles/admin/members/${memberId}`,
     acceptInvite: (code: string) => `/servers/invites/${code}/accept`,
   },
 } as const;

@@ -33,8 +33,12 @@ async function announceParticipants(io: Server, channelId: string) {
 // Next steps from the architecture doc: @socket.io/redis-adapter for multiple instances and
 // mediasoup SFU replacing the mesh.
 
+/**
+ * canSpeak tells the client to stay muted. ponytail: in the P2P mesh nothing stops a modified
+ * client from sending audio anyway — mediasoup will refuse the producer without SPEAK.
+ */
 export async function join(io: Server, socketId: string, userId: string, channelId: string) {
-  await channelsService.canConnect(channelId, userId);
+  const { canSpeak } = await channelsService.canConnect(channelId, userId);
   const socket = io.sockets.sockets.get(socketId)!;
   if (socket.data.voiceChannelId) await leave(io, socketId);
 
@@ -52,7 +56,7 @@ export async function join(io: Server, socketId: string, userId: string, channel
   } satisfies Peer);
   await announceParticipants(io, channelId);
 
-  return peers;
+  return { peers, canSpeak };
 }
 
 export async function leave(io: Server, socketId: string) {

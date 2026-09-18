@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import {
+  adminParamsSchema,
   assignParamsSchema,
   createRoleSchema,
   roleParamsSchema,
@@ -39,5 +40,17 @@ export async function assign(req: Request, res: Response) {
 export async function unassign(req: Request, res: Response) {
   const { serverId, roleId, memberId } = assignParamsSchema.parse(req.params);
   await rolesService.unassign(serverId, roleId, memberId, req.auth!.sub);
+  res.status(204).end();
+}
+
+export async function grantAdmin(req: Request, res: Response) {
+  const { serverId, memberId } = adminParamsSchema.parse(req.params);
+  await rolesService.setAdmin(serverId, memberId, req.auth!.sub, true);
+  res.status(204).end();
+}
+
+export async function revokeAdmin(req: Request, res: Response) {
+  const { serverId, memberId } = adminParamsSchema.parse(req.params);
+  await rolesService.setAdmin(serverId, memberId, req.auth!.sub, false);
   res.status(204).end();
 }

@@ -1,14 +1,18 @@
+import { Fragment } from "react";
 import {
   RAIL_PATH,
   useServerWheel,
   WHEEL_HEIGHT,
 } from "../../hooks/useServerWheel";
+import { openContextMenu } from "../../lib/context-menu";
 import type { ServerWheelProps } from "../../types/ui.types";
 import { ServerAvatar } from "../servers/ServerAvatar";
+import { UserActionsMenu } from "../shared/UserActionsMenu";
 
 /** Slot 0 is the add button, so a fresh account still has something on the wheel. */
 export function ServerWheel({
   servers,
+  userMenus = false,
   activeServerId,
   onOpenServer,
   onAdd,
@@ -54,33 +58,55 @@ export function ServerWheel({
           if (!slot.visible) return null;
           const server = index === 0 ? null : servers[index - 1];
 
+          const menu = userMenus && server;
+
+          // The menu sits next to the button: a popover inside a <button> is invalid HTML.
           return (
-            <button
-              key={server?.id ?? "add"}
-              type="button"
-              className="wheel-item"
-              data-add={index === 0}
-              data-unread={server?.unread || undefined}
-              data-active={slot.active || server?.id === activeServerId}
-              style={{
-                translate: `${slot.x}px ${slot.y}px`,
-                scale: `${slot.scale}`,
-                opacity: slot.opacity,
-              }}
-              role="option"
-              aria-selected={server ? server.id === activeServerId : false}
-              title={server?.name ?? "Adicionar server"}
-              onClick={() => open(index)}
-            >
-              {server ? (
-                <ServerAvatar server={server} />
-              ) : (
-                <span aria-hidden>+</span>
+            <Fragment key={server?.id ?? "add"}>
+              <button
+                type="button"
+                className="wheel-item"
+                data-add={index === 0}
+                data-unread={server?.unread || undefined}
+                data-active={slot.active || server?.id === activeServerId}
+                style={{
+                  translate: `${slot.x}px ${slot.y}px`,
+                  scale: `${slot.scale}`,
+                  opacity: slot.opacity,
+                }}
+                role="option"
+                aria-selected={server ? server.id === activeServerId : false}
+                title={server?.name ?? "Adicionar server"}
+                onClick={() => open(index)}
+                onContextMenu={
+                  menu
+                    ? (event) =>
+                        openContextMenu(
+                          event,
+                          event.currentTarget.nextElementSibling as HTMLElement,
+                        )
+                    : undefined
+                }
+              >
+                {server ? (
+                  <ServerAvatar server={server} />
+                ) : (
+                  <span aria-hidden>+</span>
+                )}
+                <span className="sr-only">
+                  {server?.name ?? "Adicionar server"}
+                </span>
+              </button>
+              {menu && (
+                <UserActionsMenu
+                  user={{
+                    id: server.id,
+                    username: server.name,
+                    name: server.name,
+                  }}
+                />
               )}
-              <span className="sr-only">
-                {server?.name ?? "Adicionar server"}
-              </span>
-            </button>
+            </Fragment>
           );
         })}
       </div>

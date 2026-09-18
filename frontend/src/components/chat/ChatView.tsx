@@ -23,15 +23,15 @@ export function ChatView({ peerId }: ChatViewProps) {
         ) : (
           <MessageList
             rows={chat.rows}
-            me={chat.me}
-            peer={chat.peer}
-            typing={chat.peerTyping}
+            authorOf={chat.authorOf}
+            intro={chat.intro}
+            typingName={chat.peerTyping ? peerName : null}
             hasOlder={chat.hasOlder}
             loadingOlder={chat.loadingOlder}
             onLoadOlder={chat.loadOlder}
           />
         )}
-        <Composer peerName={peerName} {...chat.composer} />
+        <Composer {...chat.composer} />
       </section>
       <ProfileCard user={chat.peer} />
     </div>

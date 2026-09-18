@@ -1,16 +1,11 @@
 import type { Role } from "../../generated/prisma/client.js";
 import { PERMISSIONS, type PermissionName } from "../../lib/constants.js";
 import { HttpError } from "../../lib/http-error.js";
+import { toBitfield, toNames } from "../../lib/permissions.js";
 import { prisma } from "../../lib/prisma.js";
 import * as serversService from "../servers/servers.services.js";
 import type { CreateRoleInput, UpdateRoleInput } from "./roles.schema.js";
 
-const toBitfield = (names: PermissionName[]) => names.reduce((acc, n) => acc | PERMISSIONS[n], 0n);
-
-const toNames = (permissions: bigint) =>
-  (Object.keys(PERMISSIONS) as PermissionName[]).filter((n) => (permissions & PERMISSIONS[n]) !== 0n);
-
-/** BigInt is not JSON-serializable, so permissions leave the API as names. */
 export const toPublicRole = (role: Role) => ({
   id: role.id,
   serverId: role.serverId,
@@ -35,6 +30,13 @@ async function getRole(serverId: string, roleId: string) {
   const role = await prisma.role.findUnique({ where: { id: roleId } });
   if (!role || role.serverId !== serverId) throw new HttpError(404, "Role not found");
   return role;
+}
+
+/** 404 unless every id is a role of this server. */
+export async function requireRoles(serverId: string, roleIds: string[]) {
+  if (!roleIds.length) return;
+  const found = await prisma.role.count({ where: { serverId, id: { in: roleIds } } });
+  if (found !== new Set(roleIds).size) throw new HttpError(404, "Role not found");
 }
 
 /** Nobody can grant a permission they do not hold themselves, which blocks self-escalation. */
@@ -97,6 +99,37 @@ export async function assign(serverId: string, roleId: string, memberId: string,
   await prisma.memberRole.upsert({
     where: { memberId_roleId: { memberId, roleId } },
     create: { memberId, roleId },
+    update: {},
+  });
+}
+
+const ADMIN_ROLE_NAME = "Admin";
+
+/**
+ * Right-click > Tornar admin: an owner-only shortcut. Granting uses a role named "Admin" holding
+ * ADMINISTRATOR, created on first use; revoking drops every ADMINISTRATOR role the member has.
+ */
+export async function setAdmin(serverId: string, memberId: string, userId: string, admin: boolean) {
+  const server = await serversService.getById(serverId);
+  if (server.ownerId !== userId) throw new HttpError(403, "Only the owner can manage administrators");
+  const member = await prisma.serverMember.findUnique({ where: { id: memberId } });
+  if (!member || member.serverId !== serverId) throw new HttpError(404, "Member not found");
+  if (member.userId === server.ownerId) throw new HttpError(409, "The owner is always an administrator");
+
+  const roles = await prisma.role.findMany({ where: { serverId } });
+  const adminRoles = roles.filter((r) => serversService.has(r.permissions, "ADMINISTRATOR"));
+  if (!admin) {
+    await prisma.memberRole.deleteMany({ where: { memberId, roleId: { in: adminRoles.map((r) => r.id) } } });
+    return;
+  }
+  const role =
+    adminRoles.find((r) => r.name === ADMIN_ROLE_NAME) ??
+    (await prisma.role.create({
+      data: { serverId, name: ADMIN_ROLE_NAME, permissions: PERMISSIONS.ADMINISTRATOR },
+    }));
+  await prisma.memberRole.upsert({
+    where: { memberId_roleId: { memberId, roleId: role.id } },
+    create: { memberId, roleId: role.id },
     update: {},
   });
 }

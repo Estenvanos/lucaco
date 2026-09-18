@@ -6,6 +6,7 @@ import { holdSocket, socket } from "../../lib/socket";
 import type { AppNotification } from "../../types/notifications.types";
 import { friendsKeys } from "../friends/friends.keys";
 import { messagesKeys } from "../messages/messages.keys";
+import { serversKeys } from "../servers/servers.keys";
 import { notificationsKeys } from "./notifications.keys";
 
 const setList = (update: (list: AppNotification[]) => AppNotification[]) =>
@@ -24,6 +25,9 @@ const onRemoved = ({ id }: { id: string }) => setList((list) => list.filter((n) 
 // Any message, any chat: the Conversas list order and membership may have changed.
 const onMessage = () => queryClient.invalidateQueries({ queryKey: messagesKeys.conversations() });
 
+// Kicked or banned: the server leaves the list, and the server page redirects once it is gone.
+const onServerRemoved = () => queryClient.invalidateQueries({ queryKey: serversKeys.all });
+
 // Events sent while the socket was down are lost: refetch on every (re)connect.
 const onConnect = () => queryClient.invalidateQueries({ queryKey: notificationsKeys.all });
 
@@ -31,6 +35,7 @@ function subscribe(notify: () => void) {
   socket.on(SOCKET_EVENTS.notificationNew, onNew);
   socket.on(SOCKET_EVENTS.notificationRemoved, onRemoved);
   socket.on(SOCKET_EVENTS.messageNew, onMessage);
+  socket.on(SOCKET_EVENTS.serverRemoved, onServerRemoved);
   socket.on("connect", onConnect);
   socket.on("connect", notify);
   socket.on("disconnect", notify);
@@ -39,6 +44,7 @@ function subscribe(notify: () => void) {
     socket.off(SOCKET_EVENTS.notificationNew, onNew);
     socket.off(SOCKET_EVENTS.notificationRemoved, onRemoved);
     socket.off(SOCKET_EVENTS.messageNew, onMessage);
+    socket.off(SOCKET_EVENTS.serverRemoved, onServerRemoved);
     socket.off("connect", onConnect);
     socket.off("connect", notify);
     socket.off("disconnect", notify);

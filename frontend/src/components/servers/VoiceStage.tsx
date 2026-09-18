@@ -15,7 +15,8 @@ import { useFullscreen } from "../../hooks/useFullscreen";
 import type { StreamViewersProps, VoiceMediaProps, VoiceStageProps, VoiceTileProps } from "../../types/ui.types";
 import { ChatAvatar } from "../chat/ChatAvatar";
 import { ChannelView } from "./ChannelView";
-import { openVoiceUserMenu, VoiceUserMenu } from "./VoiceUserMenu";
+import { openContextMenu } from "../../lib/context-menu";
+import { VoiceUserMenu } from "./VoiceUserMenu";
 
 function VoiceMedia({ item, outputId, deafened, audio }: VoiceMediaProps) {
   const attach = (node: HTMLMediaElement | null) => {
@@ -56,7 +57,7 @@ function VoiceTile({ tile, local, preview, onWatch, onVolume, onMute }: VoiceTil
       className="voice-tile"
       data-speaking={tile.speaking}
       tabIndex={local ? undefined : 0}
-      onContextMenu={local ? undefined : openVoiceUserMenu}
+      onContextMenu={local ? undefined : openContextMenu}
     >
       {local && tile.sharing && preview && <img className="voice-tile-preview" src={preview} alt="" />}
       <ChatAvatar user={tile.person} size="lg" />

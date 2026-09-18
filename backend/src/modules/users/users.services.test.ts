@@ -3,7 +3,7 @@ import { jest } from "@jest/globals";
 /** jest.fn() with no type argument infers `never` parameters, which breaks mockResolvedValue. */
 const mock = () => jest.fn<(...args: any[]) => any>();
 
-const user = { findUnique: mock(), findMany: mock(), update: mock() };
+const user = { findUnique: mock(), findMany: mock(), update: mock(), count: mock() };
 const userKey = { findFirst: mock(), create: mock(), updateMany: mock() };
 const $transaction = jest.fn(async (fn: any) => fn({ userKey }));
 const store = jest.fn<(...args: unknown[]) => Promise<string>>();
@@ -29,6 +29,7 @@ const userRow = (over: Record<string, unknown> = {}) => ({
   hiddenNotificationTags: [],
   audioInputId: null,
   audioOutputId: null,
+  mutedUserIds: [] as string[],
   createdAt: new Date(),
   updatedAt: new Date(),
   ...over,
@@ -69,6 +70,7 @@ describe("settings", () => {
       hiddenNotificationTags: ["new_message"],
       audioInputId: "mic-1",
       audioOutputId: null,
+      mutedUserIds: [],
     });
     expect(JSON.stringify(publicUser)).not.toContain("argon2id");
   });
@@ -209,5 +211,46 @@ describe("publishKey", () => {
 
     await expect(users.getActiveKey(USER_ID)).resolves.toMatchObject({ publicKey: "c3BraQ==" });
     expect(userKey.findFirst).toHaveBeenCalledWith({ where: { userId: USER_ID, isActive: true } });
+  });
+});
+
+describe("mute", () => {
+  const OTHER = "22222222-2222-2222-2222-222222222222";
+
+  it("adds the user once, never twice", async () => {
+    user.findUnique.mockResolvedValue(userRow());
+    user.update.mockResolvedValue(userRow({ mutedUserIds: [OTHER] }));
+    await users.mute(USER_ID, OTHER);
+    expect(user.update).toHaveBeenCalledWith({ where: { id: USER_ID }, data: { mutedUserIds: { push: OTHER } } });
+
+    user.update.mockClear();
+    user.findUnique.mockResolvedValue(userRow({ mutedUserIds: [OTHER] }));
+    await users.mute(USER_ID, OTHER);
+    expect(user.update).not.toHaveBeenCalled();
+  });
+
+  it("409s muting yourself", async () => {
+    await expect(users.mute(USER_ID, USER_ID)).rejects.toMatchObject({ status: 409 });
+  });
+
+  it("404s an unknown user", async () => {
+    user.findUnique.mockResolvedValueOnce(userRow()).mockResolvedValueOnce(null);
+    await expect(users.mute(USER_ID, OTHER)).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("unmute removes only that user", async () => {
+    const third = "33333333-3333-3333-3333-333333333333";
+    user.findUnique.mockResolvedValue(userRow({ mutedUserIds: [OTHER, third] }));
+    user.update.mockResolvedValue(userRow());
+
+    await users.unmute(USER_ID, OTHER);
+
+    expect(user.update).toHaveBeenCalledWith({ where: { id: USER_ID }, data: { mutedUserIds: [third] } });
+  });
+
+  it("shows the muted list in the user's own settings", async () => {
+    await expect(users.toPublicUser(userRow({ mutedUserIds: [OTHER] }))).resolves.toMatchObject({
+      settings: { mutedUserIds: [OTHER] },
+    });
   });
 });

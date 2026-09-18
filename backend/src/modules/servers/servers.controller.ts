@@ -5,6 +5,7 @@ import {
   createServerSchema,
   discoverServersSchema,
   inviteCodeSchema,
+  memberParamsSchema,
   searchServersSchema,
   serverIdSchema,
   updateServerSchema,
@@ -91,6 +92,18 @@ export async function leave(req: Request, res: Response) {
   res.status(204).end();
 }
 
+export async function kick(req: Request, res: Response) {
+  const { serverId, userId } = memberParamsSchema.parse(req.params);
+  await serversService.kick(serverId, userId, req.auth!.sub);
+  res.status(204).end();
+}
+
+export async function ban(req: Request, res: Response) {
+  const { serverId, userId } = memberParamsSchema.parse(req.params);
+  await serversService.ban(serverId, userId, req.auth!.sub);
+  res.status(204).end();
+}
+
 export async function updateBanner(req: Request, res: Response) {
   const { serverId } = serverIdSchema.parse(req.params);
   const server = await serversService.updateBanner(serverId, req.auth!.sub, imageFileSchema.parse(req.file));
@@ -101,4 +114,9 @@ export async function updateIcon(req: Request, res: Response) {
   const { serverId } = serverIdSchema.parse(req.params);
   const server = await serversService.updateIcon(serverId, req.auth!.sub, imageFileSchema.parse(req.file));
   res.json(await serversService.toPublicServer(server));
+}
+
+export async function myPermissions(req: Request, res: Response) {
+  const { serverId } = serverIdSchema.parse(req.params);
+  res.json({ permissions: await serversService.myPermissions(serverId, req.auth!.sub) });
 }

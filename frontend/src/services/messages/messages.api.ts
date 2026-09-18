@@ -5,7 +5,16 @@ import { ApiError, request } from "../../lib/api";
 import { encryptText } from "../../lib/crypto";
 import { queryClient } from "../../lib/query-client";
 import { socket } from "../../lib/socket";
-import type { ChatMessage, ChatPage, Conversation, HistoryResponse, StoredMessage } from "../../types/messages.types";
+import type {
+  ChatMessage,
+  ChatPage,
+  Conversation,
+  HistoryResponse,
+  MessageContentType,
+  Outgoing,
+  StoredMessage,
+} from "../../types/messages.types";
+import { channelKeyring, keyForEpoch } from "./messages.channel-e2e";
 import { chatKey, decryptMessage } from "./messages.e2e";
 import { messagesKeys } from "./messages.keys";
 
@@ -46,24 +55,74 @@ export const useChat = (me: string, peerId: string) =>
     retry: false,
   });
 
-/** Puts a message at the newest end of the open chat, once (ack and broadcast both deliver it). */
-export function addToChat(peerId: string, message: ChatMessage) {
-  queryClient.setQueryData<InfiniteData<ChatPage>>(messagesKeys.chat(peerId), (data) => {
+/** Server channel history: each message opens with the key of the epoch it names. */
+export const useChannelChat = (me: string, channelId: string) =>
+  useInfiniteQuery({
+    queryKey: messagesKeys.channel(channelId),
+    queryFn: async ({ pageParam }): Promise<ChatPage> => {
+      await channelKeyring(me, channelId); // creates or joins the epoch before the first send
+      const page = await request<HistoryResponse>(ENDPOINTS.messages.channelHistory(channelId, pageParam));
+      return {
+        channelId,
+        messages: await Promise.all(
+          page.messages.map(async (m) => decryptMessage(await keyForEpoch(me, channelId, m.keyEpoch), m)),
+        ),
+        nextCursor: page.nextCursor,
+      };
+    },
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+    staleTime: Infinity,
+    refetchOnMount: "always",
+    retry: false,
+  });
+
+/** Puts a message at the newest end of an open chat, once (ack and broadcast both deliver it). */
+export function addToCache(queryKey: readonly unknown[], message: ChatMessage) {
+  queryClient.setQueryData<InfiniteData<ChatPage>>(queryKey, (data) => {
     if (!data || data.pages.some((p) => p.messages.some((m) => m.id === message.id))) return data;
     const [first, ...rest] = data.pages;
     return { ...data, pages: [{ ...first, messages: [message, ...first.messages] }, ...rest] };
   });
 }
 
-/** Encrypts in the browser and sends through the user's socket; the server only sees ciphertext. */
-export async function sendMessage(me: string, peerId: string, text: string) {
-  const key = await chatKey(me, peerId);
-  const sealed = await encryptText(key, text);
+export const addToChat = (peerId: string, message: ChatMessage) => addToCache(messagesKeys.chat(peerId), message);
+
+const sealed = (key: CryptoKey, out: Outgoing) =>
+  encryptText(key, out.audio ? JSON.stringify(out.audio) : out.text);
+
+const contentType = (out: Outgoing): MessageContentType => (out.audio ? "audio" : "text");
+
+async function emit(payload: object) {
   const ack = await socket
     .timeout(10_000)
-    .emitWithAck(SOCKET_EVENTS.messageSend, { peerId, clientMessageId: crypto.randomUUID(), ...sealed });
+    .emitWithAck(SOCKET_EVENTS.messageSend, { clientMessageId: crypto.randomUUID(), ...payload });
   if ("error" in ack) throw new ApiError(400, String(ack.error));
-  const stored = ack as StoredMessage;
-  addToChat(peerId, { id: stored.id, senderId: me, text, createdAt: stored.createdAt });
+  return ack as StoredMessage;
+}
+
+/** Encrypts in the browser and sends through the user's socket; the server only sees ciphertext. */
+export async function sendMessage(me: string, peerId: string, out: Outgoing) {
+  const key = await chatKey(me, peerId);
+  const stored = await emit({ peerId, contentType: contentType(out), ...(await sealed(key, out)) });
+  addToChat(peerId, { id: stored.id, senderId: me, ...out, createdAt: stored.createdAt });
   queryClient.invalidateQueries({ queryKey: messagesKeys.conversations() });
+}
+
+/** Same for a server channel, with the current epoch key; a rotation in between retries once. */
+export async function sendChannelMessage(me: string, channelId: string, out: Outgoing, retry = true): Promise<void> {
+  const ring = await channelKeyring(me, channelId, !retry);
+  try {
+    const stored = await emit({
+      channelId,
+      keyEpoch: ring.current,
+      contentType: contentType(out),
+      ...(await sealed(ring.keys.get(ring.current)!, out)),
+    });
+    addToCache(messagesKeys.channel(channelId), { id: stored.id, senderId: me, ...out, createdAt: stored.createdAt });
+  } catch (err) {
+    // The API's 409 for a message sealed with an epoch someone just rotated away from.
+    if (retry && err instanceof ApiError && err.message === "Stale key epoch") return sendChannelMessage(me, channelId, out, false);
+    throw err;
+  }
 }

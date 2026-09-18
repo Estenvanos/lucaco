@@ -47,9 +47,12 @@ describe("join", () => {
     const present = socket("b", { voiceChannelId: "sala", sharing: true });
     const io = server([newcomer], [present]);
 
-    const peers = await voice.join(io, "a", "user-a", "sala");
+    canConnect.mockResolvedValue({ canSpeak: false });
+
+    const { peers, canSpeak } = await voice.join(io, "a", "user-a", "sala");
 
     expect(canConnect).toHaveBeenCalledWith("sala", "user-a");
+    expect(canSpeak).toBe(false);
     expect(peers).toEqual([
       { socketId: "b", userId: "user-b", username: "name-b", sharing: true, viewing: null },
     ]);

@@ -1,13 +1,12 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { ROUTES } from "../constants/routes";
-import { createChannelSchema } from "../schemas/servers.schema";
-import { useChannels, useCreateChannel, useMembers, useServers } from "../services/servers/servers.api";
+import { useChannels, useMembers, useServerPermissions, useServers } from "../services/servers/servers.api";
+import type { Channel, ChannelType } from "../types/servers.types";
 import type { UserStatus } from "../types/users.types";
 import type { ChatPerson } from "../types/ui.types";
 import type { PeerInfo, VoiceTile } from "../types/voice.types";
 import { useAuth } from "./useAuth";
-import { useZodForm } from "./useZodForm";
 import {
   DEFAULT_USER_AUDIO,
   joinVoice,
@@ -32,11 +31,12 @@ const STATUS_ORDER: Record<UserStatus, number> = { online: 0, dnd: 1, offline: 2
 export function useServerPage(serverId: string, channelId: string | undefined) {
   const me = useAuth().user!;
   const navigate = useNavigate();
-  const { data: servers = [] } = useServers();
+  const { data: servers = [], isSuccess: serversLoaded } = useServers();
   const { data: channels = [], isPending: channelsLoading } = useChannels(serverId);
   const { data: members = [] } = useMembers(serverId);
-  const create = useCreateChannel(serverId);
-  const [creating, setCreating] = useState(false);
+  const { data: myPermissions = [] } = useServerPermissions(serverId);
+  /** The channel screen: `channel` null creates a new channel of `type`. */
+  const [settings, setSettings] = useState<{ channel: Channel | null; type: ChannelType } | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
 
   const server = servers.find((s) => s.id === serverId) ?? null;
@@ -65,14 +65,10 @@ export function useServerPage(serverId: string, channelId: string | undefined) {
     viewers: callers.filter((p) => p.viewing === participant.socketId).map(personOf),
   }));
 
-  const createForm = useZodForm(createChannelSchema, async (values) => {
-    const channel = await create.mutateAsync(values);
-    setCreating(false);
-    navigate(ROUTES.channel(serverId, channel.id));
-  });
-
   return {
     server,
+    /** Not (or no longer) a member: kicked, banned or a stale link. */
+    gone: serversLoaded && !server,
     currentUserId: me.id,
     textChannels,
     voiceChannel,
@@ -94,11 +90,14 @@ export function useServerPage(serverId: string, channelId: string | undefined) {
     activeChannel,
     channelsLoading,
     members: [...members].sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status]),
-    // ponytail: only the owner sees "+"; admins with MANAGE_SERVER still get it from the API.
-    // Expose the caller's permissions (GET /servers/:id/permissions) when roles get a UI.
-    canManage: server?.ownerId === me.id,
-    creating,
-    toggleCreating: () => setCreating((open) => !open),
-    createForm: { ...createForm, loading: create.isPending },
+    canManage: myPermissions.includes("MANAGE_CHANNELS"),
+    settings,
+    openCreateChannel: () => setSettings({ channel: null, type: "text" }),
+    openChannelSettings: (channel: Channel) => setSettings({ channel, type: channel.type }),
+    closeChannelSettings: () => setSettings(null),
+    onChannelCreated: (channel: Channel) => {
+      setSettings(null);
+      navigate(ROUTES.channel(serverId, channel.id));
+    },
   };
 }

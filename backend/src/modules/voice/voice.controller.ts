@@ -6,7 +6,7 @@ import * as voiceService from "./voice.services.js";
 
 export async function join(io: Server, socket: Socket, payload: unknown) {
   const { channelId } = joinSchema.parse(payload);
-  return { peers: await voiceService.join(io, socket.id, socket.data.userId, channelId) };
+  return voiceService.join(io, socket.id, socket.data.userId, channelId);
 }
 
 export async function leave(io: Server, socket: Socket) {

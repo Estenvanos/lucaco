@@ -13,6 +13,8 @@ export type UserSettings = {
   /** MediaDeviceInfo.deviceId: per browser and origin, may not exist on this machine. */
   audioInputId: string | null;
   audioOutputId: string | null;
+  /** Users whose notifications never reach this one (right-click > Silenciar). */
+  mutedUserIds: string[];
 };
 
 export type SettingsSection = "perfil" | "conta" | "aparencia" | "notificacoes" | "audio";

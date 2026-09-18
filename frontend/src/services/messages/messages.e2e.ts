@@ -1,7 +1,7 @@
 import { ENDPOINTS } from "../../constants/endpoints";
 import { ApiError, request } from "../../lib/api";
 import { decryptText, deriveChatKey, exportPublicKey, loadKeyPair } from "../../lib/crypto";
-import type { ChatMessage, PublishedKey, StoredMessage } from "../../types/messages.types";
+import type { AudioRef, ChatMessage, PublishedKey, StoredMessage } from "../../types/messages.types";
 
 let published: Promise<CryptoKeyPair> | null = null;
 
@@ -10,7 +10,7 @@ let published: Promise<CryptoKeyPair> | null = null;
  * ponytail: one device per user — a second browser publishes its own key and the first can no
  * longer read new messages (and republishes on its next load); multi-device needs per-device keys.
  */
-function myKeys(me: string) {
+export function myKeys(me: string) {
   published ??= (async () => {
     const pair = await loadKeyPair(me);
     const publicKey = await exportPublicKey(pair);
@@ -52,11 +52,22 @@ export function chatKey(me: string, peerId: string) {
   return key;
 }
 
-export async function decryptMessage(key: CryptoKey, message: StoredMessage): Promise<ChatMessage> {
+/** `key` null: no key opens it (an epoch this browser was never given). Shown as undecryptable. */
+export async function decryptMessage(key: CryptoKey | null, message: StoredMessage): Promise<ChatMessage> {
+  const plain = key && (await decryptText(key, message.ciphertext, message.iv));
+  let audio: AudioRef | null = null;
+  if (plain && message.contentType === "audio") {
+    try {
+      audio = JSON.parse(plain) as AudioRef;
+    } catch {
+      audio = null;
+    }
+  }
   return {
     id: message.id,
     senderId: message.senderId,
-    text: await decryptText(key, message.ciphertext, message.iv),
+    text: audio ? "" : plain,
+    audio,
     createdAt: message.createdAt,
   };
 }

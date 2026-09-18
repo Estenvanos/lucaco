@@ -54,6 +54,9 @@ export class Call {
     return this.screen !== null;
   }
 
+  /** Whether the channel lets this user talk (SPEAK). */
+  canSpeak = true;
+
   get micStream() {
     return this.mic;
   }
@@ -73,6 +76,9 @@ export class Call {
       this.stopMic();
       throw new Error(res.error);
     }
+    // Without SPEAK the mic stays off: the track is muted before any peer receives it.
+    this.canSpeak = res.canSpeak !== false;
+    if (!this.canSpeak) for (const track of this.mic.getAudioTracks()) track.enabled = false;
     for (const info of res.peers as PeerInfo[]) this.addPeer(info);
     this.emitPeers();
   }
@@ -87,6 +93,7 @@ export class Call {
   toggleMute() {
     const track = this.mic?.getAudioTracks()[0];
     if (!track) return false;
+    if (!this.canSpeak) return true;
     track.enabled = !track.enabled;
     return !track.enabled;
   }

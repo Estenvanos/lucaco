@@ -1,15 +1,20 @@
 import type { ButtonHTMLAttributes, ChangeEvent, FormEvent, InputHTMLAttributes, KeyboardEvent, ReactNode } from "react";
 import type { ZodForm } from "./form.types";
 import type { AddFriendInput, FriendsTab, PublicFriendship } from "./friends.types";
-import type { ChatRow, Conversation } from "./messages.types";
+import type { AudioRef, ChatRow, Conversation, VoiceRecorder } from "./messages.types";
 import type { SettingsSection, UserProfile } from "./users.types";
 import type { AppNotification } from "./notifications.types";
 import type { PasswordStrength } from "./password.types";
 import type { UserAudio, VoiceSnapshot, VoiceStream, VoiceTile } from "./voice.types";
 import type {
   Channel,
-  CreateChannelInput,
+  ChannelOverwrites,
+  ChannelPermission,
+  ChannelType,
   DiscoveredServer,
+  OverwriteState,
+  OverwriteTarget,
+  Role,
   PublicServer,
   ServerCategory,
   ServerMember,
@@ -56,6 +61,8 @@ export type WheelEntry = Pick<PublicServer, "id" | "name" | "iconUrl"> & {
 
 export type ServerWheelProps = {
   servers: WheelEntry[];
+  /** Entries are friends: right-click opens the user menu. */
+  userMenus?: boolean;
   activeServerId: string | null;
   onOpenServer: (serverId: string) => void;
   onAdd: () => void;
@@ -157,22 +164,32 @@ export type ChatHeaderProps = { peer: UserProfile; typing: boolean };
 
 export type MessageListProps = {
   rows: ChatRow[];
-  me: ChatPerson;
-  peer: UserProfile;
-  typing: boolean;
+  /** Who wrote a message; unknown senders (left the server) get a placeholder. */
+  authorOf: (senderId: string) => ChatPerson;
+  /** Shown above the first message once the whole history is loaded. */
+  intro: { title: string; text: string };
+  /** Name of who is typing right now, if anyone. */
+  typingName: string | null;
   hasOlder: boolean;
   loadingOlder: boolean;
   onLoadOlder: () => void;
 };
 
 export type ComposerProps = {
-  peerName: string;
+  placeholder: string;
+  label: string;
+  /** Why the user cannot write here; the composer is shown disabled with it. */
+  blocked?: string | null;
   sending: boolean;
   error: string | null;
+  /** The microphone button; null when voice messages are not allowed. */
+  voice: VoiceRecorder | null;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
-  onInput: () => void;
+  onInput?: () => void;
   onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
 };
+
+export type AudioMessageProps = { audio: AudioRef };
 
 export type ProfileCardProps = { user: UserProfile };
 
@@ -185,11 +202,11 @@ export type ServerChannelsProps = {
   members: ServerMember[];
   textChannels: Channel[];
   activeChannelId: string | null;
-  /** Shows the "+" that opens the new text channel form. */
+  /** Shows the "+" that opens the new channel screen. */
   canManage: boolean;
-  creating: boolean;
-  onToggleCreate: () => void;
-  createForm: ZodForm<CreateChannelInput> & { loading: boolean };
+  onCreateChannel: () => void;
+  /** Opens a channel's settings; only offered where the user may change something. */
+  onEditChannel: (channel: Channel) => void;
   voice: VoiceSnapshot;
   onJoinVoice: () => void;
   onLeaveVoice: () => void;
@@ -239,6 +256,54 @@ export type StreamViewersProps = { viewers: ChatPerson[] };
 
 export type VoiceMediaProps = { item: VoiceStream; outputId: string | null; deafened: boolean; audio: UserAudio | undefined };
 
-export type MemberListProps = { members: ServerMember[] };
+export type MemberListProps = { server: PublicServer; members: ServerMember[] };
+
+/** Who a right-click menu is about. `member` (in a server) adds the moderation items. */
+export type UserActionsMenuProps = {
+  user: { id: string; username: string; name: string };
+  member?: { serverId: string; ownerId: string; memberId: string; isAdmin: boolean };
+};
 
 export type SettingsNavProps = { active: SettingsSection };
+
+export type ChannelSettingsProps = {
+  server: PublicServer;
+  /** null: the screen creates a new channel of `type`. */
+  channel: Channel | null;
+  type: ChannelType;
+  members: ServerMember[];
+  onClose: () => void;
+  onCreated: (channel: Channel) => void;
+};
+
+export type ChannelSettingsFormProps = Omit<ChannelSettingsProps, "members"> & {
+  everyoneRoleId: string;
+  myMemberId: string;
+  initial: ChannelOverwrites;
+  canManageChannel: boolean;
+  canManagePermissions: boolean;
+  isAdmin: boolean;
+  roles: Role[];
+  members: ServerMember[];
+};
+
+export type ChannelPermissionsProps = {
+  type: ChannelType;
+  roles: Role[];
+  members: ServerMember[];
+  isPrivate: boolean;
+  onTogglePrivate: (on: boolean) => void;
+  targets: OverwriteTarget[];
+  selected: OverwriteTarget;
+  onSelect: (target: OverwriteTarget) => void;
+  onAdd: (target: OverwriteTarget) => void;
+  onRemove: (target: OverwriteTarget) => void;
+  stateOf: (target: OverwriteTarget, permission: ChannelPermission) => OverwriteState;
+  onChange: (target: OverwriteTarget, permission: ChannelPermission, state: OverwriteState) => void;
+};
+
+export type PermissionSwitchProps = {
+  label: string;
+  value: OverwriteState;
+  onChange: (state: OverwriteState) => void;
+};

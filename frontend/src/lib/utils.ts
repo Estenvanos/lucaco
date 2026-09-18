@@ -134,3 +134,9 @@ export function scorePassword(password: string): PasswordStrength {
 
   return { score, level: score <= 2 ? "weak" : score <= 4 ? "medium" : "strong", hint };
 }
+
+/** 83_000 ms -> "1:23". */
+export function formatDuration(ms: number) {
+  const seconds = Math.round(ms / 1000);
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+}

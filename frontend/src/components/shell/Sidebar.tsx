@@ -30,6 +30,7 @@ export function Sidebar() {
       <ServerWheel
         key={mode}
         servers={entries}
+        userMenus={mode === "friends"}
         activeServerId={activeId}
         onOpenServer={openEntry}
         onAdd={mode === "servers" ? openDiscover : openFriends}
