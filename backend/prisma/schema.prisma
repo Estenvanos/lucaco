@@ -14,6 +14,15 @@ model User {
   passwordHash      String         @map("password_hash")
   displayName       String?        @map("display_name") @db.VarChar(64)
   avatarUrl         String?        @map("avatar_url") // object storage key
+  status            UserStatus     @default(online)
+  // Settings: 1:1 with the user and read with every /users/me, so they live on the row.
+  theme                  Theme             @default(system)
+  notificationsMuted     Boolean           @default(false) @map("notifications_muted")
+  /// Tags left out of the bell. Presentation only: the notifications are still stored.
+  hiddenNotificationTags NotificationTag[] @default([]) @map("hidden_notification_tags")
+  /// MediaDeviceInfo.deviceId, which is per browser and origin: may not exist on another machine.
+  audioInputId           String?           @map("audio_input_id") @db.VarChar(256)
+  audioOutputId          String?           @map("audio_output_id") @db.VarChar(256)
   createdAt         DateTime       @default(now()) @map("created_at") @db.Timestamptz
   updatedAt         DateTime       @updatedAt @map("updated_at") @db.Timestamptz
   sessions          Session[]
@@ -29,6 +38,23 @@ model User {
   notificationsSent Notification[] @relation("notificationOwner")
 
   @@map("users")
+}
+
+enum Theme {
+  system
+  dark
+  light
+
+  @@map("theme")
+}
+
+/// What the user shows to others. Chosen by the user, not derived from the socket (yet).
+enum UserStatus {
+  online
+  offline
+  dnd
+
+  @@map("user_status")
 }
 
 /// Public half of the user's E2E keypair (ECDH P-256, SPKI base64). The private key never

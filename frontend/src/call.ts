@@ -1,8 +1,6 @@
 import type { Socket } from "socket.io-client";
-
-export type PeerInfo = { socketId: string; userId: string; username: string; sharing: boolean };
-type Signal = { from: string; description?: RTCSessionDescriptionInit; candidate?: RTCIceCandidateInit };
-type Peer = PeerInfo & { pc: RTCPeerConnection; polite: boolean; makingOffer: boolean; ignoreOffer: boolean };
+import { SOCKET_EVENTS } from "./constants/socket-events";
+import type { CallEvents, Peer, PeerInfo, Signal } from "./types/voice.types";
 
 // ponytail: STUN only, ~1/5 of users behind strict NAT will fail. Add coturn (TURN) before real users.
 const ICE_SERVERS: RTCIceServer[] = [{ urls: "stun:stun.l.google.com:19302" }];
@@ -13,12 +11,6 @@ const SCREEN = { width: 1280, height: 720, frameRate: 30, maxBitrate: 2_500_000 
 // Best screen codecs first (static regions cost far less than in VP8); the browser falls back on its own.
 const SCREEN_CODECS = ["video/VP9", "video/H264"];
 const STATS_INTERVAL_MS = 5_000;
-
-export type CallEvents = {
-  onPeersChange: (peers: PeerInfo[]) => void;
-  onStream: (key: string, stream: MediaStream | null, label: string) => void;
-  onStatus: (message: string) => void;
-};
 
 /**
  * P2P mesh call: one RTCPeerConnection per peer, signaling through Socket.IO.
@@ -34,28 +26,33 @@ export class Call {
     private socket: Socket,
     private events: CallEvents,
   ) {
-    socket.on("voice:peer-joined", (info: PeerInfo) => this.addPeer(info));
-    socket.on("voice:peer-left", ({ socketId }: { socketId: string }) => this.removePeer(socketId));
-    socket.on("voice:screen", ({ socketId, sharing }: { socketId: string; sharing: boolean }) => {
+    socket.on(SOCKET_EVENTS.voicePeerJoined, (info: PeerInfo) => this.addPeer(info));
+    socket.on(SOCKET_EVENTS.voicePeerLeft, ({ socketId }: { socketId: string }) => this.removePeer(socketId));
+    socket.on(SOCKET_EVENTS.voiceScreen, ({ socketId, sharing }: { socketId: string; sharing: boolean }) => {
       const peer = this.peers.get(socketId);
       if (!peer) return;
       peer.sharing = sharing;
       this.emitPeers();
       if (sharing) this.events.onStatus(`${peer.username} começou a compartilhar a aba`);
     });
-    socket.on("voice:signal", (signal: Signal) => this.handleSignal(signal).catch(console.error));
+    socket.on(SOCKET_EVENTS.voiceSignal, (signal: Signal) => this.handleSignal(signal).catch(console.error));
   }
 
   get sharing() {
     return this.screen !== null;
   }
 
-  async join(roomId: string) {
+  async join(channelId: string, audioInputId: string | null = null) {
     this.mic = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      audio: {
+        ...(audioInputId && { deviceId: { exact: audioInputId } }),
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
       video: false,
     });
-    const res = await this.socket.emitWithAck("voice:join", { roomId });
+    const res = await this.socket.emitWithAck(SOCKET_EVENTS.voiceJoin, { channelId });
     if (res.error) {
       this.stopMic();
       throw new Error(res.error);
@@ -68,7 +65,7 @@ export class Call {
     this.stopShare();
     for (const id of [...this.peers.keys()]) this.removePeer(id);
     this.stopMic();
-    await this.socket.emitWithAck("voice:leave", {});
+    await this.socket.emitWithAck(SOCKET_EVENTS.voiceLeave, {});
   }
 
   toggleMute() {
@@ -110,7 +107,11 @@ export class Call {
     this.screen = stream;
     for (const peer of this.peers.values()) this.addScreenTracks(peer.pc);
     this.events.onStream("local-screen", stream, "Você (aba)");
-    this.socket.emit("voice:screen", { sharing: true });
+    const response = await this.socket.emitWithAck(SOCKET_EVENTS.voiceScreen, { sharing: true });
+    if (response.error) {
+      this.stopShare();
+      throw new Error(response.error);
+    }
     this.statsTimer = window.setInterval(() => this.logScreenStats(), STATS_INTERVAL_MS);
   }
 
@@ -147,7 +148,7 @@ export class Call {
     }
     this.screen = null;
     this.events.onStream("local-screen", null, "");
-    this.socket.emit("voice:screen", { sharing: false });
+    this.socket.emit(SOCKET_EVENTS.voiceScreen, { sharing: false });
   }
 
   private addScreenTracks(pc: RTCPeerConnection) {
@@ -196,14 +197,14 @@ export class Call {
     this.addScreenTracks(pc);
 
     pc.onicecandidate = ({ candidate }) => {
-      if (candidate) this.socket.emit("voice:signal", { to: info.socketId, candidate: candidate.toJSON() });
+      if (candidate) this.socket.emit(SOCKET_EVENTS.voiceSignal, { to: info.socketId, candidate: candidate.toJSON() });
     };
 
     pc.onnegotiationneeded = async () => {
       try {
         peer.makingOffer = true;
         await pc.setLocalDescription();
-        this.socket.emit("voice:signal", { to: info.socketId, description: pc.localDescription });
+        this.socket.emit(SOCKET_EVENTS.voiceSignal, { to: info.socketId, description: pc.localDescription });
       } catch (err) {
         console.error(err);
       } finally {
@@ -250,7 +251,7 @@ export class Call {
       await pc.setRemoteDescription(description);
       if (description.type === "offer") {
         await pc.setLocalDescription();
-        this.socket.emit("voice:signal", { to: from, description: pc.localDescription });
+        this.socket.emit(SOCKET_EVENTS.voiceSignal, { to: from, description: pc.localDescription });
       }
     } else if (candidate) {
       try {

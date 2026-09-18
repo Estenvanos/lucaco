@@ -12,7 +12,19 @@ export const signInSchema = z.object({
   password: z.string().min(1).max(128),
 });
 
+export const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1).max(128),
+  newPassword: z.string().min(8).max(128),
+});
+
+export const changeEmailSchema = z.object({
+  currentPassword: z.string().min(1).max(128),
+  email: z.email().max(255).toLowerCase(),
+});
+
 export const refreshTokenSchema = z.string().min(1);
 
 export type SignUpInput = z.infer<typeof signUpSchema>;
 export type SignInInput = z.infer<typeof signInSchema>;
+export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
+export type ChangeEmailInput = z.infer<typeof changeEmailSchema>;

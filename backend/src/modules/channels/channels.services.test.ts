@@ -137,3 +137,37 @@ describe("canSend", () => {
     expect(requirePermission).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("voice permissions", () => {
+  it("maps a persisted voice channel to CONNECT and STREAM permissions", async () => {
+    channel.findUnique.mockResolvedValue(row({ type: "voice", name: "voz" }));
+
+    await channels.canConnect(CHANNEL_ID, USER_ID);
+    await channels.canStream(CHANNEL_ID, USER_ID);
+
+    expect(requirePermission.mock.calls.map((call) => call[2])).toEqual([
+      "CONNECT",
+      "CONNECT",
+      "STREAM",
+    ]);
+  });
+
+  it("lets a member view the voice roster without requiring CONNECT", async () => {
+    channel.findUnique.mockResolvedValue(row({ type: "voice", name: "voz" }));
+
+    await channels.canViewVoice(CHANNEL_ID, USER_ID);
+
+    expect(requirePermission).toHaveBeenCalledWith(SERVER_ID, USER_ID, "VIEW_CHANNELS");
+    expect(requirePermission).not.toHaveBeenCalledWith(SERVER_ID, USER_ID, "CONNECT");
+  });
+
+  it("never treats a text channel as a voice room", async () => {
+    channel.findUnique.mockResolvedValue(row());
+
+    await expect(channels.canConnect(CHANNEL_ID, USER_ID)).rejects.toMatchObject({
+      status: 400,
+      message: "Not a voice channel",
+    });
+    expect(requirePermission).not.toHaveBeenCalled();
+  });
+});

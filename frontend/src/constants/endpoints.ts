@@ -5,10 +5,14 @@ export const ENDPOINTS = {
     signIn: "/auth/sign-in",
     refresh: "/auth/refresh",
     logout: "/auth/logout",
+    password: "/auth/password",
+    email: "/auth/email",
   },
   users: {
     me: "/users/me",
     avatar: "/users/me/avatar",
+    status: "/users/me/status",
+    settings: "/users/me/settings",
     myKey: "/users/me/keys",
     key: (userId: string) => `/users/${userId}/key`,
   },
@@ -36,6 +40,7 @@ export const ENDPOINTS = {
     detail: (serverId: string) => `/servers/${serverId}`,
     image: (serverId: string, kind: "icon" | "banner") => `/servers/${serverId}/${kind}`,
     members: (serverId: string) => `/servers/${serverId}/members`,
+    channels: (serverId: string) => `/servers/${serverId}/channels`,
     acceptInvite: (code: string) => `/servers/invites/${code}/accept`,
   },
 } as const;

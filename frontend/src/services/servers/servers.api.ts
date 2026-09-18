@@ -4,11 +4,14 @@ import { ENDPOINTS } from "../../constants/endpoints";
 import { request } from "../../lib/api";
 import { queryClient } from "../../lib/query-client";
 import type {
+  Channel,
+  CreateChannelInput,
   CreateServerInput,
   DiscoveredServer,
   JoinServerInput,
   PublicServer,
   ServerImageKind,
+  ServerMember,
 } from "../../types/servers.types";
 import { serversKeys } from "./servers.keys";
 
@@ -63,4 +66,26 @@ export const useJoinServer = () =>
       return request<{ serverId: string }>(endpoint, { method: "POST" });
     },
     onSuccess: invalidateList,
+  });
+
+export const useChannels = (serverId: string) =>
+  useQuery({
+    queryKey: serversKeys.channels(serverId),
+    queryFn: () => request<Channel[]>(ENDPOINTS.servers.channels(serverId)),
+  });
+
+export const useMembers = (serverId: string) =>
+  useQuery({
+    queryKey: serversKeys.members(serverId),
+    queryFn: () => request<ServerMember[]>(ENDPOINTS.servers.members(serverId)),
+  });
+
+export const useCreateChannel = (serverId: string) =>
+  useMutation({
+    mutationFn: (input: CreateChannelInput) =>
+      request<Channel>(ENDPOINTS.servers.channels(serverId), {
+        method: "POST",
+        body: { ...input, type: "text" },
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: serversKeys.channels(serverId) }),
   });

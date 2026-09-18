@@ -3,7 +3,13 @@ import { env } from "../../env.js";
 import { REFRESH_COOKIE, REFRESH_COOKIE_PATH } from "../../lib/constants.js";
 import { HttpError } from "../../lib/http-error.js";
 import { toPublicUser } from "../users/users.services.js";
-import { refreshTokenSchema, signInSchema, signUpSchema } from "./auth.schema.js";
+import {
+  changeEmailSchema,
+  changePasswordSchema,
+  refreshTokenSchema,
+  signInSchema,
+  signUpSchema,
+} from "./auth.schema.js";
 import * as authService from "./auth.services.js";
 
 const meta = (req: Request) => ({ userAgent: req.get("user-agent"), ip: req.ip });
@@ -77,4 +83,15 @@ export async function logout(req: Request, res: Response) {
 export function getToken(req: Request, res: Response) {
   const { sub, sid, iat, exp } = req.auth!;
   res.json({ userId: sub, sessionId: sid, issuedAt: new Date(iat * 1000), expiresAt: new Date(exp * 1000) });
+}
+
+export async function changePassword(req: Request, res: Response) {
+  const { sub, sid } = req.auth!;
+  await authService.changePassword(sub, sid, changePasswordSchema.parse(req.body));
+  res.status(204).end();
+}
+
+export async function changeEmail(req: Request, res: Response) {
+  const user = await authService.changeEmail(req.auth!.sub, changeEmailSchema.parse(req.body));
+  res.json(await toPublicUser(user));
 }

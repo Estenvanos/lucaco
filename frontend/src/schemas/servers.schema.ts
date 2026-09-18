@@ -34,3 +34,13 @@ export const joinServerSchema = z.object({
       "Informe um ID público ou código de convite válido",
     ),
 });
+
+/** Same rule as the API: trimmed, then spaces become dashes ("bate papo" -> "bate-papo"). */
+export const createChannelSchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(1, "Informe um nome")
+    .max(LIMITS.channelName.max)
+    .transform((name) => name.toLowerCase().replace(/\s+/g, "-")),
+});

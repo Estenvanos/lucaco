@@ -1,4 +1,4 @@
-import { ImagePicker } from "../../components/servers/ImagePicker";
+import { ImagePicker } from "../../components/shared/ImagePicker";
 import { Button } from "../../components/shared/Button";
 import { Field } from "../../components/shared/Field";
 import { FormError } from "../../components/shared/FormError";

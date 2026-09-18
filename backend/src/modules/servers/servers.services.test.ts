@@ -8,13 +8,14 @@ const server = { create: mock(), findUnique: mock(), findMany: mock(), update: m
 const serverMember = { create: mock(), findUnique: mock(), findMany: mock(), delete: mock() };
 const role = { create: mock(), findFirst: mock() };
 const invite = { create: mock(), findUnique: mock(), updateMany: mock() };
+const channel = { createMany: mock() };
 const prisma = {
   server,
   serverMember,
   role,
   invite,
   $transaction: jest.fn(async (fn: (tx: unknown) => unknown) =>
-    fn({ server, serverMember, role, invite }),
+    fn({ server, serverMember, role, invite, channel }),
   ),
 };
 
@@ -78,6 +79,46 @@ describe("create", () => {
       data: { serverId: SERVER, name: "@everyone", permissions: DEFAULT_PERMISSIONS, isDefault: true },
     });
     expect(serverMember.create).toHaveBeenCalledWith({ data: { serverId: SERVER, userId: OWNER } });
+  });
+
+  it("opens every new server with a geral text channel and its single voz voice channel", async () => {
+    server.create.mockResolvedValue(serverRow);
+
+    await servers.create(OWNER, { name: "Sala", visibility: "public", category: "other" });
+
+    expect(channel.createMany).toHaveBeenCalledWith({
+      data: [
+        { serverId: SERVER, type: "text", name: "geral" },
+        { serverId: SERVER, type: "voice", name: "voz" },
+      ],
+    });
+  });
+});
+
+describe("listMembers", () => {
+  it("shows each member's status and signed avatar, never the email or hash", async () => {
+    serverMember.findMany.mockResolvedValue([
+      {
+        id: "m1",
+        userId: MEMBER,
+        nickname: null,
+        joinedAt: new Date(),
+        roles: [],
+        user: {
+          username: "person",
+          displayName: null,
+          avatarUrl: "images/avatars/a.webp",
+          status: "dnd",
+          email: "person@example.com",
+          passwordHash: "argon2id$secret",
+        },
+      },
+    ]);
+
+    const [member] = await servers.listMembers(SERVER);
+
+    expect(member).toMatchObject({ userId: MEMBER, status: "dnd", avatarUrl: "signed:images/avatars/a.webp" });
+    expect(JSON.stringify(member)).not.toMatch(/argon2id|example\.com/);
   });
 });
 

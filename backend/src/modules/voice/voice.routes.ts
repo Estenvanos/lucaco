@@ -9,6 +9,8 @@ export function registerVoiceSocket(io: Server) {
     on(io, socket, SOCKET_EVENTS.voiceLeave, voiceController.leave);
     on(io, socket, SOCKET_EVENTS.voiceSignal, voiceController.signal);
     on(io, socket, SOCKET_EVENTS.voiceScreen, voiceController.screen);
+    on(io, socket, SOCKET_EVENTS.voiceWatch, voiceController.watch);
+    on(io, socket, SOCKET_EVENTS.voiceUnwatch, voiceController.unwatch);
     socket.on("disconnecting", () => voiceController.leave(io, socket));
   });
 }

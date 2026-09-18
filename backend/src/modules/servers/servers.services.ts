@@ -36,7 +36,10 @@ export async function toPublicServer(server: {
   };
 }
 
-/** Owner, @everyone role and the owner's membership are created together or not at all. */
+/**
+ * Owner, @everyone role, the owner's membership and the default channels ("geral" text, the
+ * single "voz" voice) are created together or not at all.
+ */
 export async function create(userId: string, input: CreateServerInput) {
   return prisma.$transaction(async (tx) => {
     const server = await tx.server.create({ data: { ...input, ownerId: userId } });
@@ -49,6 +52,12 @@ export async function create(userId: string, input: CreateServerInput) {
       },
     });
     await tx.serverMember.create({ data: { serverId: server.id, userId } });
+    await tx.channel.createMany({
+      data: [
+        { serverId: server.id, type: "text", name: "geral" },
+        { serverId: server.id, type: "voice", name: "voz" },
+      ],
+    });
     return server;
   });
 }
@@ -152,15 +161,19 @@ export async function listMembers(serverId: string) {
     include: { user: true, roles: { select: { roleId: true } } },
     orderBy: { joinedAt: "asc" },
   });
-  return members.map((m) => ({
-    id: m.id,
-    userId: m.userId,
-    username: m.user.username,
-    displayName: m.user.displayName,
-    nickname: m.nickname,
-    roleIds: m.roles.map((r) => r.roleId),
-    joinedAt: m.joinedAt,
-  }));
+  return Promise.all(
+    members.map(async (m) => ({
+      id: m.id,
+      userId: m.userId,
+      username: m.user.username,
+      displayName: m.user.displayName,
+      avatarUrl: m.user.avatarUrl ? await signedGetUrl(m.user.avatarUrl) : null,
+      status: m.user.status,
+      nickname: m.nickname,
+      roleIds: m.roles.map((r) => r.roleId),
+      joinedAt: m.joinedAt,
+    })),
+  );
 }
 
 export async function join(serverId: string, userId: string) {
