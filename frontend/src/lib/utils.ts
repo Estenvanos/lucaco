@@ -8,6 +8,16 @@ export const initials = (name: string) => name.slice(0, 2).toUpperCase();
 
 export const formatDate = (iso: string) => new Date(iso).toLocaleDateString("pt-BR");
 
+/**
+ * Shortest signed distance from `offset` to slot `index` on a closed ring, in slots.
+ * With 8 items, slot 0 is one step after slot 7 — never seven steps back. This is what lets the
+ * server wheel turn through 360° instead of stopping at either end.
+ */
+export function ringDelta(index: number, offset: number, count: number) {
+  const half = count / 2;
+  return ((((index - offset + half) % count) + count) % count) - half;
+}
+
 /* ---------- password strength ---------- */
 
 // Cheap denylist of what people actually type here. ponytail: a real breach list (zxcvbn, HIBP)

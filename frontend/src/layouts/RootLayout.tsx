@@ -4,7 +4,7 @@ import { getAccessToken, refreshAccessToken } from "../lib/api";
 import { queryClient } from "../lib/query-client";
 import { fetchMe } from "../services/users/users.api";
 import { usersKeys } from "../services/users/users.keys";
-import { AppHeader } from "../components/shared/AppHeader";
+import { Sidebar } from "../components/shell/Sidebar";
 
 /**
  * Session bootstrap. Runs before the tree renders, which is why no component needs an effect:
@@ -23,7 +23,7 @@ export async function rootLoader() {
 export function RootLayout() {
   return (
     <div className="root-layout">
-      <AppHeader />
+      <Sidebar />
       <main className="content">
         <Outlet />
       </main>

@@ -10,4 +10,10 @@ export const ENDPOINTS = {
     me: "/users/me",
     avatar: "/users/me/avatar",
   },
+  servers: {
+    root: "/servers",
+    detail: (serverId: string) => `/servers/${serverId}`,
+    members: (serverId: string) => `/servers/${serverId}/members`,
+    acceptInvite: (code: string) => `/servers/invites/${code}/accept`,
+  },
 } as const;
