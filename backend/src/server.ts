@@ -19,6 +19,7 @@ import { messagesRouter } from "./modules/messages/messages.routes.js";
 import { registerMessagesSocket } from "./modules/messages/messages.routes.js";
 import { usersRouter } from "./modules/users/users.routes.js";
 import { friendsRouter } from "./modules/friends/friends.routes.js";
+import { notificationsRouter } from "./modules/notifications/notifications.routes.js";
 import { serversRouter } from "./modules/servers/servers.routes.js";
 import { registerVoiceSocket } from "./modules/voice/voice.routes.js";
 
@@ -44,6 +45,7 @@ app.use("/auth", authRouter);
 app.use("/users", usersRouter);
 app.use("/servers", serversRouter);
 app.use("/friends", friendsRouter);
+app.use("/notifications", notificationsRouter);
 app.use("/channels", channelsRouter);
 app.use("/messages", messagesRouter);
 app.use(notFoundHandler);

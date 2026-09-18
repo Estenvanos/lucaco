@@ -4,7 +4,7 @@ import type { RefreshResponse } from "../types/auth.types";
 
 // Empty (dev, Docker) keeps every call same-origin through the proxy; set VITE_API_URL when the
 // frontend is hosted apart from the API (Vercel + Railway), which makes the requests cross-origin.
-const API_URL = import.meta.env.VITE_API_URL ?? "";
+export const API_URL = import.meta.env.VITE_API_URL ?? "";
 
 // In memory on purpose: localStorage is readable by any XSS. The refresh token is the httpOnly
 // cookie scoped to /auth, which the browser sends on its own.

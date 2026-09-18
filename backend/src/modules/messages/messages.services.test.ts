@@ -4,13 +4,19 @@ import { MongoServerError, ObjectId } from "mongodb";
 /** jest.fn() with no type argument infers `never` parameters, which breaks mockResolvedValue. */
 const mock = () => jest.fn<(...args: any[]) => any>();
 
-const messages = { insertOne: mock(), findOne: mock(), find: mock() };
+const messages = { insertOne: mock(), findOne: mock(), find: mock(), aggregate: mock() };
 const areFriends = mock();
+const list = mock();
 const canonicalPair = (a: string, b: string) =>
   a < b ? { userLowId: a, userHighId: b } : { userLowId: b, userHighId: a };
 
 jest.unstable_mockModule("../../lib/mongo.js", () => ({ messages }));
-jest.unstable_mockModule("../friends/friends.services.js", () => ({ areFriends, canonicalPair }));
+jest.unstable_mockModule("../friends/friends.services.js", () => ({ areFriends, canonicalPair, list }));
+const notifications = { notifyOnce: mock(), dismissFrom: mock() };
+jest.unstable_mockModule("../notifications/notifications.services.js", () => notifications);
+jest.unstable_mockModule("../users/users.services.js", () => ({
+  getById: jest.fn(async (id: string) => ({ id, username: "alice", displayName: null })),
+}));
 
 const service = await import("./messages.services.js");
 
@@ -96,6 +102,20 @@ describe("send", () => {
     expect(message.id).toBe(stored._id.toHexString());
   });
 
+  it("leaves the receiver one unread-message notice from the sender", async () => {
+    messages.insertOne.mockResolvedValue({});
+    areFriends.mockResolvedValue(true);
+
+    await service.send(ALICE, input);
+
+    expect(notifications.notifyOnce).toHaveBeenCalledWith({
+      tag: "new_message",
+      title: "alice te mandou uma mensagem",
+      ownerId: ALICE,
+      receiverId: BOB,
+    });
+  });
+
   it("refuses to message someone who is not an accepted friend", async () => {
     areFriends.mockResolvedValue(false);
 
@@ -167,5 +187,38 @@ describe("history", () => {
       channelId: service.dmId(ALICE, BOB),
       _id: { $lt: new ObjectId(cursor) },
     });
+  });
+});
+
+describe("conversations", () => {
+  const bob = { id: BOB, username: "bob", displayName: null, avatarUrl: null };
+
+  it("lists friends with messages, newest first, looking only at the user's DM channels", async () => {
+    list.mockResolvedValue([{ userId: BOB, user: bob }]);
+    const lastMessageAt = new Date();
+    messages.aggregate.mockReturnValue({
+      toArray: mock().mockResolvedValue([{ _id: service.dmId(ALICE, BOB), lastMessageAt }]),
+    });
+
+    const result = await service.conversations(ALICE);
+
+    expect(list).toHaveBeenCalledWith(ALICE, { status: "accepted" });
+    const [match] = messages.aggregate.mock.calls[0]![0] as [{ $match: unknown }];
+    expect(match).toEqual({ $match: { channelId: { $in: [service.dmId(ALICE, BOB)] } } });
+    expect(result).toEqual([{ peer: bob, lastMessageAt }]);
+  });
+});
+
+describe("markRead", () => {
+  it("clears only the peer's unread-message notices, for the reader", async () => {
+    await service.markRead(ALICE, BOB);
+    expect(notifications.dismissFrom).toHaveBeenCalledWith(ALICE, BOB, "new_message");
+  });
+});
+
+describe("typing", () => {
+  it("is refused between users who are not friends", async () => {
+    areFriends.mockResolvedValue(false);
+    await expect(service.typing(ALICE, CAROL)).rejects.toMatchObject({ status: 403 });
   });
 });

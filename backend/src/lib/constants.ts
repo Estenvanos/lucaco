@@ -1,5 +1,7 @@
 /** Values shared by more than one module. Module-only constants stay in the module. */
 
+import type { NotificationTag } from "../generated/prisma/client.js";
+
 /** Socket event names. The frontend mirrors this list in constants/socket-events.ts. */
 export const SOCKET_EVENTS = {
   voiceJoin: "voice:join",
@@ -8,7 +10,21 @@ export const SOCKET_EVENTS = {
   voiceScreen: "voice:screen",
   messageSend: "message:send",
   messageNew: "message:new",
+  messageTyping: "message:typing",
+  notificationNew: "notification:new",
+  notificationRemoved: "notification:removed",
 } as const;
+
+/**
+ * Notification tags (the `notification_tag` enum in Postgres). `satisfies` breaks the build if
+ * this list and the Prisma enum drift apart. The frontend mirrors it in constants/notifications.ts.
+ */
+export const NOTIFICATION_TAGS = {
+  friendRequest: "friend_request",
+  friendAccepted: "friend_accepted",
+  /** One per sender while unread: the red dot on the friend, cleared when the chat is opened. */
+  newMessage: "new_message",
+} as const satisfies Record<string, NotificationTag>;
 
 /** Refresh cookie: scoped to /auth so it is never sent to the rest of the API. */
 export const REFRESH_COOKIE = "refresh_token";

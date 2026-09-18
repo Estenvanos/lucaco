@@ -2,6 +2,7 @@ import { Navigate, Outlet } from "react-router";
 import { ROUTES } from "../constants/routes";
 import { useAuth } from "../hooks/useAuth";
 import { Sidebar } from "../components/shell/Sidebar";
+import { TopBar } from "../components/shell/TopBar";
 
 /** Logged-in area: renders nothing while the session resolves, sends guests to sign-in. */
 export function RootLayout() {
@@ -13,9 +14,12 @@ export function RootLayout() {
   return (
     <div className="root-layout">
       <Sidebar />
-      <main className="content">
-        <Outlet />
-      </main>
+      <div className="root-main">
+        <TopBar />
+        <main className="content">
+          <Outlet />
+        </main>
+      </div>
     </div>
   );
 }

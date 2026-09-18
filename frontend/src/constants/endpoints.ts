@@ -9,6 +9,24 @@ export const ENDPOINTS = {
   users: {
     me: "/users/me",
     avatar: "/users/me/avatar",
+    myKey: "/users/me/keys",
+    key: (userId: string) => `/users/${userId}/key`,
+  },
+  friends: {
+    root: "/friends",
+    pending: "/friends?status=pending",
+    accept: (userId: string) => `/friends/${userId}/accept`,
+    detail: (userId: string) => `/friends/${userId}`,
+  },
+  messages: {
+    conversations: "/messages/conversations",
+    history: (peerId: string, before?: string) =>
+      `/messages?${new URLSearchParams({ peerId, ...(before && { before }) })}`,
+    read: "/messages/read",
+  },
+  notifications: {
+    root: "/notifications",
+    detail: (id: string) => `/notifications/${id}`,
   },
   servers: {
     root: "/servers",

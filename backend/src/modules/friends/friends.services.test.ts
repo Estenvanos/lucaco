@@ -14,14 +14,27 @@ const friendship = {
 };
 
 jest.unstable_mockModule("../../lib/prisma.js", () => ({ prisma: { friendship } }));
+const USERS: Record<string, string> = {
+  alice: "11111111-1111-1111-1111-111111111111",
+  bob: "22222222-2222-2222-2222-222222222222",
+};
 jest.unstable_mockModule("../users/users.services.js", () => ({
-  getById: jest.fn(async (id: string) => ({ id })),
+  getById: jest.fn(async (id: string) => ({ id, username: id === USERS.alice ? "alice" : "bob", displayName: null })),
+  getProfiles: jest.fn(async (ids: string[]) =>
+    new Map(ids.map((id) => [id, { id, username: id === USERS.alice ? "alice" : "bob", displayName: null, avatarUrl: null }])),
+  ),
+  getByUsername: jest.fn(async (username: string) => {
+    if (!USERS[username]) throw new HttpError(404, "User not found");
+    return { id: USERS[username] };
+  }),
 }));
+const notifications = { notify: mock(), dismissFriendRequest: mock() };
+jest.unstable_mockModule("../notifications/notifications.services.js", () => notifications);
 
 const friends = await import("./friends.services.js");
 
-const ALICE = "11111111-1111-1111-1111-111111111111";
-const BOB = "22222222-2222-2222-2222-222222222222";
+const ALICE = USERS.alice;
+const BOB = USERS.bob;
 
 const row = (over: Record<string, unknown> = {}) => ({
   id: "row-1",
@@ -57,7 +70,7 @@ describe("request", () => {
     friendship.findUnique.mockResolvedValue(null);
     friendship.create.mockResolvedValue(row());
 
-    const result = await friends.request(ALICE, BOB);
+    const result = await friends.request(ALICE, { username: "bob" });
 
     expect(friendship.create).toHaveBeenCalledWith({
       data: { userLowId: ALICE, userHighId: BOB, requestedBy: ALICE },
@@ -65,27 +78,60 @@ describe("request", () => {
     expect(result).toMatchObject({ userId: BOB, status: "pending", incoming: false });
   });
 
+  it("notifies the invited user, with the note as the subtitle", async () => {
+    friendship.findUnique.mockResolvedValue(null);
+    friendship.create.mockResolvedValue(row());
+
+    await friends.request(ALICE, { username: "bob", message: "bora jogar" });
+
+    expect(notifications.notify).toHaveBeenCalledWith({
+      tag: "friend_request",
+      title: "alice quer ser seu amigo",
+      subtitle: "bora jogar",
+      ownerId: ALICE,
+      receiverId: BOB,
+    });
+  });
+
+  it("404s for a username that does not exist, before writing anything", async () => {
+    await rejects(friends.request(ALICE, { username: "ghost" }), 404);
+    expect(friendship.create).not.toHaveBeenCalled();
+    expect(notifications.notify).not.toHaveBeenCalled();
+  });
+
   it("accepts the pending invite instead of creating a duplicate row", async () => {
     friendship.findUnique.mockResolvedValue(row({ requestedBy: BOB }));
     friendship.update.mockResolvedValue(row({ requestedBy: BOB, status: "accepted" }));
 
-    const result = await friends.request(ALICE, BOB);
+    const result = await friends.request(ALICE, { username: "bob" });
 
     expect(friendship.create).not.toHaveBeenCalled();
+    expect(notifications.dismissFriendRequest).toHaveBeenCalledWith(ALICE, BOB);
     expect(result.status).toBe("accepted");
   });
 
   it("refuses self, duplicates, existing friends and blocked users", async () => {
-    await rejects(friends.request(ALICE, ALICE), 409, /yourself/);
+    await rejects(friends.request(ALICE, { username: "alice" }), 409, /yourself/);
 
     friendship.findUnique.mockResolvedValue(row());
-    await rejects(friends.request(ALICE, BOB), 409, /already sent/);
+    await rejects(friends.request(ALICE, { username: "bob" }), 409, /already sent/);
 
     friendship.findUnique.mockResolvedValue(row({ status: "accepted" }));
-    await rejects(friends.request(ALICE, BOB), 409, /already friends/);
+    await rejects(friends.request(ALICE, { username: "bob" }), 409, /already friends/);
 
     friendship.findUnique.mockResolvedValue(row({ status: "blocked", blockedBy: BOB }));
-    await rejects(friends.request(ALICE, BOB), 403, /blocked/);
+    await rejects(friends.request(ALICE, { username: "bob" }), 403, /blocked/);
+  });
+});
+
+describe("list", () => {
+  it("names the other side with a public profile, never the email", async () => {
+    friendship.findMany.mockResolvedValue([row({ status: "accepted" })]);
+
+    const [friend] = await friends.list(ALICE, { status: "accepted" });
+
+    expect(friend.user).toEqual({ id: BOB, username: "bob", displayName: null, avatarUrl: null });
+    expect(friend.user).not.toHaveProperty("email");
   });
 });
 
@@ -97,6 +143,18 @@ describe("accept", () => {
     friendship.findUnique.mockResolvedValue(row({ requestedBy: BOB }));
     friendship.update.mockResolvedValue(row({ requestedBy: BOB, status: "accepted" }));
     await expect(friends.accept(ALICE, BOB)).resolves.toMatchObject({ status: "accepted" });
+    expect(notifications.dismissFriendRequest).toHaveBeenCalledWith(ALICE, BOB);
+  });
+
+  it("tells the requester their request was accepted", async () => {
+    friendship.findUnique.mockResolvedValue(row({ requestedBy: BOB }));
+    friendship.update.mockResolvedValue(row({ requestedBy: BOB, status: "accepted" }));
+
+    await friends.accept(ALICE, BOB);
+
+    expect(notifications.notify).toHaveBeenCalledWith(
+      expect.objectContaining({ tag: "friend_accepted", ownerId: ALICE, receiverId: BOB }),
+    );
   });
 
   it("404s when there is no pending request", async () => {
@@ -135,6 +193,8 @@ describe("block and unblock", () => {
       }),
     );
     expect(result.blockedByMe).toBe(true);
+    // A blocked sender's request must not stay waiting in the notifications.
+    expect(notifications.dismissFriendRequest).toHaveBeenCalledWith(ALICE, BOB);
   });
 
   it("lets only the blocker unblock", async () => {
@@ -152,6 +212,7 @@ describe("remove", () => {
     friendship.findUnique.mockResolvedValue(row({ status: "accepted" }));
     await friends.remove(ALICE, BOB);
     expect(friendship.delete).toHaveBeenCalledWith({ where: { id: "row-1" } });
+    expect(notifications.dismissFriendRequest).toHaveBeenCalledWith(ALICE, BOB);
   });
 
   it("does not let the blocked side delete the block", async () => {

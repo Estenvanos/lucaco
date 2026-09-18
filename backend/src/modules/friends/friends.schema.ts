@@ -5,7 +5,8 @@ export const friendParamsSchema = z.object({
 });
 
 export const friendRequestSchema = z.object({
-  userId: z.string().uuid(),
+  username: z.string().trim().min(1).max(32),
+  message: z.string().trim().max(120).transform((value) => value || undefined).optional(),
 });
 
 export const listFriendsSchema = z.object({

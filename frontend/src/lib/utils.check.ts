@@ -1,6 +1,7 @@
 /** Run with `node src/lib/utils.check.ts` — fails loudly if the scoring rules drift. */
 import assert from "node:assert/strict";
 import {
+  chatRows,
   debounceSearch,
   listRules,
   missingPasswordRules,
@@ -58,3 +59,14 @@ search("  PIXEL ");
 await new Promise((resolve) => setTimeout(resolve, 40));
 assert.deepEqual(sent, ["pixel"], "only the last keystroke reaches the API, normalized");
 
+const msg = (id: string, senderId: string, createdAt: string) => ({ id, senderId, text: id, createdAt });
+const rows = chatRows([
+  msg("d", "bob", "2026-09-19T10:00:00Z"),
+  msg("c", "bob", "2026-09-18T12:10:00Z"),
+  msg("b", "alice", "2026-09-18T12:01:00Z"),
+  msg("a", "alice", "2026-09-18T12:00:00Z"),
+]);
+assert.deepEqual(rows.map((r) => r.id), ["a", "b", "c", "d"], "oldest first on screen");
+assert.deepEqual(rows.map((r) => r.first), [true, false, true, true], "same sender within 5 min shares a header");
+assert.ok(rows[0].day && !rows[1].day && !rows[2].day && rows[3].day, "a divider on each new day only");
+console.log("chatRows: ok");

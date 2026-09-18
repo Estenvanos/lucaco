@@ -26,5 +26,10 @@ export const historySchema = z.object({
   limit: z.coerce.number().int().min(1).max(50).default(30),
 });
 
+export const peerSchema = z.object({
+  peerId: z.string().uuid(),
+});
+
+export type PeerInput = z.infer<typeof peerSchema>;
 export type SendMessageInput = z.infer<typeof sendMessageSchema>;
 export type HistoryInput = z.infer<typeof historySchema>;

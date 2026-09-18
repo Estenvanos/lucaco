@@ -2,7 +2,10 @@ import { createHash } from "node:crypto";
 import { MongoServerError, ObjectId } from "mongodb";
 import { HttpError } from "../../lib/http-error.js";
 import { messages, type MessageDoc } from "../../lib/mongo.js";
+import { NOTIFICATION_TAGS } from "../../lib/constants.js";
 import * as friendsService from "../friends/friends.services.js";
+import * as notificationsService from "../notifications/notifications.services.js";
+import * as usersService from "../users/users.services.js";
 import type { HistoryInput, SendMessageInput } from "./messages.schema.js";
 
 /** Fixed namespace for the DM conversation ids derived below. Changing it orphans every DM. */
@@ -75,6 +78,14 @@ export async function send(userId: string, input: SendMessageInput) {
 
   try {
     await messages.insertOne(doc);
+    // Only a new message notifies: the idempotent retry below must not ping twice.
+    const sender = await usersService.getById(userId);
+    await notificationsService.notifyOnce({
+      tag: NOTIFICATION_TAGS.newMessage,
+      title: `${sender.displayName ?? sender.username} te mandou uma mensagem`,
+      ownerId: userId,
+      receiverId: input.peerId,
+    });
     return toPublicMessage(doc);
   } catch (err) {
     if (err instanceof MongoServerError && err.code === 11000) {
@@ -104,4 +115,31 @@ export async function history(userId: string, { peerId, before, limit }: History
     hasMore: page.length > limit,
     nextCursor: page.length > limit ? items.at(-1)!._id.toHexString() : null,
   };
+}
+
+/**
+ * Friends the user has already talked to, most recent first. Only the time of the last message:
+ * the content is ciphertext, so there is no preview to give.
+ */
+export async function conversations(userId: string) {
+  const friends = await friendsService.list(userId, { status: "accepted" });
+  const byChannel = new Map(friends.map((f) => [dmId(userId, f.userId), f.user]));
+  const last = await messages
+    .aggregate<{ _id: string; lastMessageAt: Date }>([
+      { $match: { channelId: { $in: [...byChannel.keys()] } } },
+      { $group: { _id: "$channelId", lastMessageAt: { $max: "$createdAt" } } },
+      { $sort: { lastMessageAt: -1 } },
+    ])
+    .toArray();
+  return last.map(({ _id, lastMessageAt }) => ({ peer: byChannel.get(_id)!, lastMessageAt }));
+}
+
+/** Opening the chat reads it: the peer's unread-message notice goes away. */
+export function markRead(userId: string, peerId: string) {
+  return notificationsService.dismissFrom(userId, peerId, NOTIFICATION_TAGS.newMessage);
+}
+
+/** Typing is relayed only between friends, same rule as the messages themselves. */
+export function typing(userId: string, peerId: string) {
+  return requireFriendship(userId, peerId);
 }

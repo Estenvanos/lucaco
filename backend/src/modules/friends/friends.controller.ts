@@ -7,8 +7,7 @@ export async function list(req: Request, res: Response) {
 }
 
 export async function request(req: Request, res: Response) {
-  const { userId } = friendRequestSchema.parse(req.body);
-  res.status(201).json(await friendsService.request(req.auth!.sub, userId));
+  res.status(201).json(await friendsService.request(req.auth!.sub, friendRequestSchema.parse(req.body)));
 }
 
 export async function accept(req: Request, res: Response) {

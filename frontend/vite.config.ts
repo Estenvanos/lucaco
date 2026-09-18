@@ -15,6 +15,8 @@ export default defineConfig({
       "/users": api,
       "/servers": api,
       "/friends": api,
+      "/notifications": api,
+      "/messages": api,
       "/socket.io": { target: api, ws: true },
     },
   },

@@ -1,5 +1,6 @@
 /** Pure helpers only: nothing here imports React. */
 
+import type { ChatMessage, ChatRow } from "../types/messages.types";
 import type { PasswordStrength } from "../types/password.types";
 
 export const cn = (...classes: Array<string | false | null | undefined>) => classes.filter(Boolean).join(" ");
@@ -7,6 +8,35 @@ export const cn = (...classes: Array<string | false | null | undefined>) => clas
 export const initials = (name: string) => name.slice(0, 2).toUpperCase();
 
 export const formatDate = (iso: string) => new Date(iso).toLocaleDateString("pt-BR");
+
+/** "18/09/2026, 14:03": next to each message block. */
+export const formatDateTime = (iso: string) =>
+  new Date(iso).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
+
+/** Messages closer than this, from the same sender, share one avatar + name header. */
+const GROUP_GAP_MS = 5 * 60 * 1000;
+
+/**
+ * Newest-first messages (the API and cache order) into oldest-first rows ready to render:
+ * `day` marks the first message of each calendar day, `first` the start of each sender block.
+ */
+export function chatRows(newestFirst: ChatMessage[]): ChatRow[] {
+  const rows: ChatRow[] = [];
+  for (const message of [...newestFirst].reverse()) {
+    const prev = rows.at(-1);
+    const date = new Date(message.createdAt);
+    const newDay = !prev || new Date(prev.createdAt).toDateString() !== date.toDateString();
+    rows.push({
+      ...message,
+      day: newDay ? date.toLocaleDateString("pt-BR", { day: "numeric", month: "long", year: "numeric" }) : null,
+      first:
+        newDay ||
+        prev.senderId !== message.senderId ||
+        date.getTime() - new Date(prev.createdAt).getTime() > GROUP_GAP_MS,
+    });
+  }
+  return rows;
+}
 
 /** Calls `fn` only once `ms` pass without a new call; the last call's arguments win. */
 export function debounce<A extends unknown[]>(fn: (...args: A) => void, ms: number) {
