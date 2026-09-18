@@ -4,7 +4,9 @@ import { AuthLayout } from "./layouts/AuthLayout";
 import { RootLayout } from "./layouts/RootLayout";
 import { SignInPage } from "./pages/auth/SignInPage";
 import { SignUpPage } from "./pages/auth/SignUpPage";
+import { DiscoverPage } from "./pages/discover/DiscoverPage";
 import { HomePage } from "./pages/home/HomePage";
+import { NewServerPage } from "./pages/servers/NewServerPage";
 import { ServerPage } from "./pages/servers/ServerPage";
 
 export const router = createBrowserRouter([
@@ -12,6 +14,8 @@ export const router = createBrowserRouter([
     element: <RootLayout />,
     children: [
       { path: ROUTES.home, element: <HomePage /> },
+      { path: ROUTES.discover, element: <DiscoverPage /> },
+      { path: ROUTES.newServer, element: <NewServerPage /> },
       { path: ROUTES.serverPattern, element: <ServerPage /> },
     ],
   },

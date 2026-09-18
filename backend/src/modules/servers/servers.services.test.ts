@@ -22,6 +22,7 @@ jest.unstable_mockModule("../../lib/prisma.js", () => ({ prisma }));
 jest.unstable_mockModule("../../lib/storage.js", () => ({ signedGetUrl: jest.fn(async (k: string) => `signed:${k}`) }));
 jest.unstable_mockModule("../images/images.services.js", () => ({ store: mock(), remove: mock() }));
 
+const imagesService = await import("../images/images.services.js");
 const servers = await import("./servers.services.js");
 
 const OWNER = "11111111-1111-1111-1111-111111111111";
@@ -32,7 +33,10 @@ const serverRow = {
   id: SERVER,
   ownerId: OWNER,
   name: "Sala",
+  description: null,
+  category: "other",
   iconUrl: null,
+  bannerUrl: null,
   visibility: "public" as const,
   createdAt: new Date(),
 };
@@ -64,11 +68,11 @@ describe("create", () => {
   it("creates server, @everyone and the owner membership in one transaction", async () => {
     server.create.mockResolvedValue(serverRow);
 
-    await servers.create(OWNER, { name: "Sala", visibility: "private" });
+    await servers.create(OWNER, { name: "Sala", visibility: "private", category: "gaming", description: "Jogos" });
 
     expect(prisma.$transaction).toHaveBeenCalled();
     expect(server.create).toHaveBeenCalledWith({
-      data: { name: "Sala", visibility: "private", ownerId: OWNER },
+      data: { name: "Sala", visibility: "private", category: "gaming", description: "Jogos", ownerId: OWNER },
     });
     expect(role.create).toHaveBeenCalledWith({
       data: { serverId: SERVER, name: "@everyone", permissions: DEFAULT_PERMISSIONS, isDefault: true },
@@ -248,5 +252,136 @@ describe("toPublicServer", () => {
     });
     await expect(servers.toPublicServer(serverRow)).resolves.toMatchObject({ iconUrl: null });
     await expect(servers.toPublicServer(serverRow)).resolves.toMatchObject({ visibility: "public" });
+  });
+});
+
+describe("search", () => {
+  const named = (...names: string[]) =>
+    server.findMany.mockResolvedValue(names.map((name, i) => ({ ...serverRow, id: `id-${i}`, name })));
+
+  it("searches only the servers the user is a member of", async () => {
+    named("Sala");
+
+    await servers.search(MEMBER, "sala");
+
+    expect(server.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { members: { some: { userId: MEMBER } } } }),
+    );
+  });
+
+  it("lists every server when the query is blank", async () => {
+    named("Pixel Club", "Sala");
+
+    const found = await servers.search(OWNER, "   ");
+
+    expect(found.map((s) => s.name)).toEqual(["Pixel Club", "Sala"]);
+  });
+
+  it("ignores case and accents", async () => {
+    named("São Paulo FC", "Rio");
+
+    const found = await servers.search(OWNER, "SAO paulo");
+
+    expect(found.map((s) => s.name)).toEqual(["São Paulo FC"]);
+  });
+
+  it("still finds a name through a typo", async () => {
+    named("Pixel Club", "Sala de estudos");
+
+    const found = await servers.search(OWNER, "pixl");
+
+    expect(found.map((s) => s.name)).toEqual(["Pixel Club"]);
+  });
+
+  it("ranks prefix over word prefix over substring over typo", async () => {
+    named("Time do sabado", "Clube da tarde", "Tarde livre", "Sabatarde", "Tardi");
+
+    const found = await servers.search(OWNER, "tarde");
+
+    expect(found.map((s) => s.name)).toEqual(["Tarde livre", "Clube da tarde", "Sabatarde", "Tardi"]);
+  });
+
+  it("drops servers with nothing in common with the query", async () => {
+    named("Pixel Club", "Sala");
+
+    expect(await servers.search(OWNER, "xyzw")).toEqual([]);
+  });
+});
+
+describe("discover", () => {
+  const withMembers = (members: number) => ({ ...serverRow, _count: { members } });
+
+  it("lists only public servers", async () => {
+    server.findMany.mockResolvedValue([]);
+
+    await servers.discover({ q: "" });
+
+    expect(server.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { visibility: "public" } }),
+    );
+  });
+
+  it("filters by category and name when given", async () => {
+    server.findMany.mockResolvedValue([]);
+
+    await servers.discover({ q: "pixel", category: "gaming" });
+
+    expect(server.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          visibility: "public",
+          category: "gaming",
+          name: { contains: "pixel", mode: "insensitive" },
+        },
+      }),
+    );
+  });
+
+  it("returns the member count instead of the raw _count", async () => {
+    server.findMany.mockResolvedValue([withMembers(42)]);
+
+    const [found] = await servers.discover({ q: "" });
+
+    expect(found).toMatchObject({ id: SERVER, memberCount: 42 });
+    expect(found).not.toHaveProperty("_count");
+  });
+});
+
+describe("updateBanner", () => {
+  const file = { mimetype: "image/png" as const, size: 10, buffer: Buffer.from("x") };
+
+  it("stores the banner in its own folder and removes the previous one", async () => {
+    server.findUnique.mockResolvedValue({ ...serverRow, bannerUrl: "images/banners/old.webp" });
+    jest.mocked(imagesService.store).mockResolvedValue("images/banners/new.webp");
+    jest.mocked(imagesService.remove).mockResolvedValue(undefined);
+    server.update.mockResolvedValue({ ...serverRow, bannerUrl: "images/banners/new.webp" });
+
+    const updated = await servers.updateBanner(SERVER, OWNER, file);
+
+    expect(imagesService.store).toHaveBeenCalledWith(file, "banners", SERVER);
+    expect(server.update).toHaveBeenCalledWith({
+      where: { id: SERVER },
+      data: { bannerUrl: "images/banners/new.webp" },
+    });
+    expect(imagesService.remove).toHaveBeenCalledWith("images/banners/old.webp");
+    expect(updated.bannerUrl).toBe("images/banners/new.webp");
+  });
+
+  it("refuses members without MANAGE_SERVER", async () => {
+    server.findUnique.mockResolvedValue(serverRow);
+    serverMember.findUnique.mockResolvedValue({ id: "m1", roles: [] });
+    role.findFirst.mockResolvedValue({ permissions: DEFAULT_PERMISSIONS });
+
+    await expect(servers.updateBanner(SERVER, MEMBER, file)).rejects.toMatchObject({ status: 403 });
+    expect(imagesService.store).not.toHaveBeenCalled();
+  });
+});
+
+describe("toPublicServer banner", () => {
+  it("signs the banner key and leaves null alone", async () => {
+    await expect(
+      servers.toPublicServer({ ...serverRow, bannerUrl: "images/banners/b.webp" }),
+    ).resolves.toMatchObject({ bannerUrl: "signed:images/banners/b.webp" });
+    await expect(servers.toPublicServer(serverRow)).resolves.toMatchObject({ bannerUrl: null });
   });
 });

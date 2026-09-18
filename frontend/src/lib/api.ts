@@ -23,14 +23,16 @@ export class ApiError extends Error {
 }
 
 async function send<T>(path: string, { method = "GET", body }: RequestOptions): Promise<T> {
+  // FormData (file upload) goes as-is: the browser writes the multipart Content-Type and boundary.
+  const isForm = body instanceof FormData;
   const res = await fetch(API_URL + path, {
     method,
     credentials: "include", // sends/stores the refresh cookie cross-origin
     headers: {
-      ...(body === undefined ? null : { "Content-Type": "application/json" }),
+      ...(body === undefined || isForm ? null : { "Content-Type": "application/json" }),
       ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : null),
     },
-    body: body === undefined ? undefined : JSON.stringify(body),
+    body: body === undefined || isForm ? body : JSON.stringify(body),
   });
 
   const data = res.status === 204 ? ({} as T) : await res.json();

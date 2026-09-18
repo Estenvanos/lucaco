@@ -4,6 +4,8 @@ export const ROUTES = {
   /** Pattern for the router; `server(id)` builds the link. */
   serverPattern: "/servers/:serverId",
   server: (serverId: string) => `/servers/${serverId}`,
+  discover: "/descobrir",
+  newServer: "/novo-servidor",
   signIn: "/sign-in",
   signUp: "/sign-up",
 } as const;

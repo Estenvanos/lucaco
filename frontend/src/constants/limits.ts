@@ -5,5 +5,6 @@ export const LIMITS = {
   displayName: { min: 1, max: 64 },
   email: { max: 255 },
   serverName: { min: 2, max: 100 },
+  serverDescription: { max: 300 },
   imageMaxBytes: 5 * 1024 * 1024,
 } as const;

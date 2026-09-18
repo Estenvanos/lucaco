@@ -1,6 +1,6 @@
-import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode } from "react";
+import type { ButtonHTMLAttributes, ChangeEvent, InputHTMLAttributes, ReactNode } from "react";
 import type { PasswordStrength } from "./password.types";
-import type { PublicServer } from "./servers.types";
+import type { DiscoveredServer, PublicServer, ServerCategory } from "./servers.types";
 
 export type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & { loading?: boolean };
 
@@ -20,9 +20,16 @@ export type FormErrorProps = { message?: string | null };
 
 export type AuthFormFooterProps = { question: string; to: string; action: string };
 
-export type AddServerTab = "create" | "join";
+/** A viewport point, in px. */
+export type Point = { x: number; y: number };
 
-export type ModalProps = { title: string; onClose: () => void; children: ReactNode };
+export type ModalProps = {
+  title: string;
+  onClose: () => void;
+  children: ReactNode;
+  /** Where the opening animation starts from (the centre of the button that opened it). */
+  origin?: Point | null;
+};
 
 export type ServerWheelProps = {
   servers: PublicServer[];
@@ -33,4 +40,34 @@ export type ServerWheelProps = {
 
 export type ServerAvatarProps = { server: PublicServer };
 
-export type AddServerDialogProps = { onClose: () => void; onDone: (serverId: string) => void };
+export type SearchServersDialogProps = {
+  origin: Point;
+  onClose: () => void;
+  onPick: (serverId: string) => void;
+};
+
+export type DiscoverNavProps = {
+  active: ServerCategory | null;
+  onPick: (category: ServerCategory | null) => void;
+  search: string;
+  onSearch: (event: ChangeEvent<HTMLInputElement>) => void;
+  onCreate: () => void;
+  onJoin: () => void;
+};
+
+export type ServerCardProps = {
+  server: DiscoveredServer;
+  joining: boolean;
+  onOpen: (serverId: string) => void;
+};
+
+export type JoinServerDialogProps = { onClose: () => void; onDone: (serverId: string) => void };
+
+export type ImagePickerProps = {
+  label: string;
+  name: "icon" | "banner";
+  previewUrl: string | null;
+  /** wide = banner proportions, square = icon. */
+  shape: "wide" | "square";
+  error?: string;
+};

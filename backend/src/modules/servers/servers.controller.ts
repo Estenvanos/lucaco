@@ -3,7 +3,9 @@ import { imageFileSchema } from "../images/images.schema.js";
 import {
   createInviteSchema,
   createServerSchema,
+  discoverServersSchema,
   inviteCodeSchema,
+  searchServersSchema,
   serverIdSchema,
   updateServerSchema,
 } from "./servers.schema.js";
@@ -17,6 +19,24 @@ export async function create(req: Request, res: Response) {
 export async function list(req: Request, res: Response) {
   const servers = await serversService.listForUser(req.auth!.sub);
   res.json(await Promise.all(servers.map(serversService.toPublicServer)));
+}
+
+export async function search(req: Request, res: Response) {
+  const { q } = searchServersSchema.parse(req.query);
+  const servers = await serversService.search(req.auth!.sub, q);
+  res.json(await Promise.all(servers.map(serversService.toPublicServer)));
+}
+
+export async function discover(req: Request, res: Response) {
+  const servers = await serversService.discover(discoverServersSchema.parse(req.query));
+  res.json(
+    await Promise.all(
+      servers.map(async ({ memberCount, ...server }) => ({
+        ...(await serversService.toPublicServer(server)),
+        memberCount,
+      })),
+    ),
+  );
 }
 
 export async function get(req: Request, res: Response) {
@@ -69,6 +89,12 @@ export async function leave(req: Request, res: Response) {
   const { serverId } = serverIdSchema.parse(req.params);
   await serversService.leave(serverId, req.auth!.sub);
   res.status(204).end();
+}
+
+export async function updateBanner(req: Request, res: Response) {
+  const { serverId } = serverIdSchema.parse(req.params);
+  const server = await serversService.updateBanner(serverId, req.auth!.sub, imageFileSchema.parse(req.file));
+  res.json(await serversService.toPublicServer(server));
 }
 
 export async function updateIcon(req: Request, res: Response) {
