@@ -7,11 +7,15 @@ const mock = () => jest.fn<(...args: any[]) => any>();
 const server = { create: mock(), findUnique: mock(), findMany: mock(), update: mock(), delete: mock() };
 const serverMember = { create: mock(), findUnique: mock(), findMany: mock(), delete: mock() };
 const role = { create: mock(), findFirst: mock() };
+const invite = { create: mock(), findUnique: mock(), updateMany: mock() };
 const prisma = {
   server,
   serverMember,
   role,
-  $transaction: jest.fn(async (fn: (tx: unknown) => unknown) => fn({ server, serverMember, role })),
+  invite,
+  $transaction: jest.fn(async (fn: (tx: unknown) => unknown) =>
+    fn({ server, serverMember, role, invite }),
+  ),
 };
 
 jest.unstable_mockModule("../../lib/prisma.js", () => ({ prisma }));
@@ -24,7 +28,16 @@ const OWNER = "11111111-1111-1111-1111-111111111111";
 const MEMBER = "22222222-2222-2222-2222-222222222222";
 const SERVER = "33333333-3333-3333-3333-333333333333";
 
-const serverRow = { id: SERVER, ownerId: OWNER, name: "Sala", iconUrl: null, createdAt: new Date() };
+const serverRow = {
+  id: SERVER,
+  ownerId: OWNER,
+  name: "Sala",
+  iconUrl: null,
+  visibility: "public" as const,
+  createdAt: new Date(),
+};
+
+beforeEach(() => jest.clearAllMocks());
 
 describe("has", () => {
   it("grants only the requested bit", () => {
@@ -51,13 +64,107 @@ describe("create", () => {
   it("creates server, @everyone and the owner membership in one transaction", async () => {
     server.create.mockResolvedValue(serverRow);
 
-    await servers.create(OWNER, { name: "Sala" });
+    await servers.create(OWNER, { name: "Sala", visibility: "private" });
 
     expect(prisma.$transaction).toHaveBeenCalled();
+    expect(server.create).toHaveBeenCalledWith({
+      data: { name: "Sala", visibility: "private", ownerId: OWNER },
+    });
     expect(role.create).toHaveBeenCalledWith({
       data: { serverId: SERVER, name: "@everyone", permissions: DEFAULT_PERMISSIONS, isDefault: true },
     });
     expect(serverMember.create).toHaveBeenCalledWith({ data: { serverId: SERVER, userId: OWNER } });
+  });
+});
+
+describe("join", () => {
+  it("lets anyone join a public server", async () => {
+    server.findUnique.mockResolvedValue(serverRow);
+    serverMember.findUnique.mockResolvedValue(null);
+    serverMember.create.mockResolvedValue({ id: "m1", serverId: SERVER, userId: MEMBER });
+
+    await expect(servers.join(SERVER, MEMBER)).resolves.toMatchObject({ id: "m1" });
+    expect(serverMember.create).toHaveBeenCalledWith({ data: { serverId: SERVER, userId: MEMBER } });
+  });
+
+  it("requires an invite for a private server", async () => {
+    server.findUnique.mockResolvedValue({ ...serverRow, visibility: "private" });
+    serverMember.findUnique.mockResolvedValue(null);
+
+    await expect(servers.join(SERVER, MEMBER)).rejects.toMatchObject({
+      status: 403,
+      message: "Invite required for private server",
+    });
+    expect(serverMember.create).not.toHaveBeenCalled();
+  });
+
+  it("keeps joining idempotent after a server becomes private", async () => {
+    const membership = { id: "m1", serverId: SERVER, userId: MEMBER };
+    server.findUnique.mockResolvedValue({ ...serverRow, visibility: "private" });
+    serverMember.findUnique.mockResolvedValue(membership);
+
+    await expect(servers.join(SERVER, MEMBER)).resolves.toBe(membership);
+  });
+});
+
+describe("invites", () => {
+  const inviteRow = {
+    code: "Abcd_efgh-12",
+    serverId: SERVER,
+    createdBy: OWNER,
+    maxUses: null,
+    uses: 0,
+    expiresAt: null,
+    createdAt: new Date(),
+  };
+
+  it("lets the owner create an invite", async () => {
+    server.findUnique.mockResolvedValue(serverRow);
+    invite.create.mockImplementation(({ data }: { data: object }) => ({ ...inviteRow, ...data }));
+
+    const result = await servers.createInvite(SERVER, OWNER, { maxUses: 3, expiresAt: null });
+
+    expect(result.code).toHaveLength(12);
+    expect(invite.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ serverId: SERVER, createdBy: OWNER, maxUses: 3 }),
+    });
+  });
+
+  it("accepts a valid invite and consumes one use atomically", async () => {
+    invite.findUnique.mockResolvedValue(inviteRow);
+    invite.updateMany.mockResolvedValue({ count: 1 });
+    serverMember.findUnique.mockResolvedValue(null);
+    serverMember.create.mockResolvedValue({ id: "m1", serverId: SERVER, userId: MEMBER });
+
+    await expect(servers.acceptInvite(inviteRow.code, MEMBER)).resolves.toMatchObject({ id: "m1" });
+    expect(invite.updateMany).toHaveBeenCalledWith({
+      where: { code: inviteRow.code },
+      data: { uses: { increment: 1 } },
+    });
+    expect(serverMember.create).toHaveBeenCalledWith({ data: { serverId: SERVER, userId: MEMBER } });
+  });
+
+  it("rejects unknown, expired and exhausted invites without adding a member", async () => {
+    invite.findUnique.mockResolvedValueOnce(null);
+    await expect(servers.acceptInvite(inviteRow.code, MEMBER)).rejects.toMatchObject({ status: 404 });
+
+    invite.findUnique.mockResolvedValueOnce({ ...inviteRow, expiresAt: new Date(0) });
+    serverMember.findUnique.mockResolvedValue(null);
+    await expect(servers.acceptInvite(inviteRow.code, MEMBER)).rejects.toMatchObject({ status: 410 });
+
+    invite.findUnique.mockResolvedValueOnce({ ...inviteRow, maxUses: 1, uses: 1 });
+    invite.updateMany.mockResolvedValue({ count: 0 });
+    await expect(servers.acceptInvite(inviteRow.code, MEMBER)).rejects.toMatchObject({ status: 410 });
+    expect(serverMember.create).not.toHaveBeenCalled();
+  });
+
+  it("does not consume another use when the invited user is already a member", async () => {
+    const membership = { id: "m1", serverId: SERVER, userId: MEMBER };
+    invite.findUnique.mockResolvedValue(inviteRow);
+    serverMember.findUnique.mockResolvedValue(membership);
+
+    await expect(servers.acceptInvite(inviteRow.code, MEMBER)).resolves.toBe(membership);
+    expect(invite.updateMany).not.toHaveBeenCalled();
   });
 });
 
@@ -140,5 +247,6 @@ describe("toPublicServer", () => {
       iconUrl: "signed:images/servers/x.webp",
     });
     await expect(servers.toPublicServer(serverRow)).resolves.toMatchObject({ iconUrl: null });
+    await expect(servers.toPublicServer(serverRow)).resolves.toMatchObject({ visibility: "public" });
   });
 });

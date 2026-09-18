@@ -4,10 +4,12 @@ import { jest } from "@jest/globals";
 const mock = () => jest.fn<(...args: any[]) => any>();
 
 const user = { findUnique: mock(), update: mock() };
+const userKey = { findFirst: mock(), create: mock(), updateMany: mock() };
+const $transaction = jest.fn(async (fn: any) => fn({ userKey }));
 const store = jest.fn<(...args: unknown[]) => Promise<string>>();
 const remove = jest.fn<(key: string) => Promise<void>>();
 
-jest.unstable_mockModule("../../lib/prisma.js", () => ({ prisma: { user } }));
+jest.unstable_mockModule("../../lib/prisma.js", () => ({ prisma: { user, userKey, $transaction } }));
 jest.unstable_mockModule("../../lib/storage.js", () => ({ signedGetUrl: jest.fn(async (k: string) => `signed:${k}`) }));
 jest.unstable_mockModule("../images/images.services.js", () => ({ store, remove }));
 
@@ -88,5 +90,54 @@ describe("updateAvatar", () => {
     await expect(users.updateAvatar(USER_ID, file)).resolves.toMatchObject({
       avatarUrl: "images/avatars/new.webp",
     });
+  });
+});
+
+describe("publishKey", () => {
+  const keyRow = {
+    id: "key-1",
+    userId: USER_ID,
+    publicKey: "c3BraQ==",
+    algorithm: "ECDH-P256",
+    isActive: true,
+    createdAt: new Date(),
+  };
+
+  it("deactivates the previous key before storing the new one", async () => {
+    userKey.create.mockResolvedValue(keyRow);
+
+    await users.publishKey(USER_ID, { publicKey: "c3BraQ==", algorithm: "ECDH-P256" });
+
+    expect(userKey.updateMany).toHaveBeenCalledWith({
+      where: { userId: USER_ID, isActive: true },
+      data: { isActive: false },
+    });
+    expect(userKey.updateMany.mock.invocationCallOrder[0]).toBeLessThan(
+      userKey.create.mock.invocationCallOrder[0]!,
+    );
+  });
+
+  it("stores only the public half", async () => {
+    userKey.create.mockResolvedValue(keyRow);
+
+    await users.publishKey(USER_ID, { publicKey: "c3BraQ==", algorithm: "ECDH-P256" });
+
+    expect(userKey.create).toHaveBeenCalledWith({
+      data: { userId: USER_ID, publicKey: "c3BraQ==", algorithm: "ECDH-P256" },
+    });
+    expect(JSON.stringify(userKey.create.mock.calls[0])).not.toMatch(/private/i);
+  });
+
+  it("404s until the peer has published a key, so nobody encrypts to a guess", async () => {
+    userKey.findFirst.mockResolvedValue(null);
+
+    await expect(users.getActiveKey(USER_ID)).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("reads the active key only", async () => {
+    userKey.findFirst.mockResolvedValue(keyRow);
+
+    await expect(users.getActiveKey(USER_ID)).resolves.toMatchObject({ publicKey: "c3BraQ==" });
+    expect(userKey.findFirst).toHaveBeenCalledWith({ where: { userId: USER_ID, isActive: true } });
   });
 });

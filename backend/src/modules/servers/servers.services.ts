@@ -1,16 +1,22 @@
+import { randomBytes } from "node:crypto";
 import { DEFAULT_PERMISSIONS, PERMISSIONS, type PermissionName } from "../../lib/constants.js";
 import { HttpError } from "../../lib/http-error.js";
 import { prisma } from "../../lib/prisma.js";
 import { signedGetUrl } from "../../lib/storage.js";
 import type { ImageFile } from "../images/images.schema.js";
 import * as imagesService from "../images/images.services.js";
-import type { CreateServerInput, UpdateServerInput } from "./servers.schema.js";
+import type {
+  CreateInviteInput,
+  CreateServerInput,
+  UpdateServerInput,
+} from "./servers.schema.js";
 
 export async function toPublicServer(server: {
   id: string;
   ownerId: string;
   name: string;
   iconUrl: string | null;
+  visibility: "public" | "private";
   createdAt: Date;
 }) {
   return {
@@ -18,14 +24,15 @@ export async function toPublicServer(server: {
     ownerId: server.ownerId,
     name: server.name,
     iconUrl: server.iconUrl ? await signedGetUrl(server.iconUrl) : null,
+    visibility: server.visibility,
     createdAt: server.createdAt,
   };
 }
 
 /** Owner, @everyone role and the owner's membership are created together or not at all. */
-export async function create(userId: string, { name }: CreateServerInput) {
+export async function create(userId: string, { name, visibility }: CreateServerInput) {
   return prisma.$transaction(async (tx) => {
-    const server = await tx.server.create({ data: { name, ownerId: userId } });
+    const server = await tx.server.create({ data: { name, visibility, ownerId: userId } });
     await tx.role.create({
       data: {
         serverId: server.id,
@@ -79,15 +86,57 @@ export async function listMembers(serverId: string) {
   }));
 }
 
-// ponytail: open join, no invite codes — anyone with the server id becomes a member.
-// The invites table from arquitetura-lucaco.md 5.3 replaces this before real users.
 export async function join(serverId: string, userId: string) {
-  await getById(serverId);
+  const server = await getById(serverId);
   const existing = await prisma.serverMember.findUnique({
     where: { serverId_userId: { serverId, userId } },
   });
   if (existing) return existing;
+  if (server.visibility !== "public") throw new HttpError(403, "Invite required for private server");
   return prisma.serverMember.create({ data: { serverId, userId } });
+}
+
+export async function createInvite(
+  serverId: string,
+  userId: string,
+  { maxUses, expiresAt }: CreateInviteInput,
+) {
+  await requirePermission(serverId, userId, "MANAGE_SERVER");
+  return prisma.invite.create({
+    data: {
+      code: randomBytes(9).toString("base64url"),
+      serverId,
+      createdBy: userId,
+      maxUses: maxUses ?? null,
+      expiresAt: expiresAt ?? null,
+    },
+  });
+}
+
+export async function acceptInvite(code: string, userId: string) {
+  return prisma.$transaction(async (tx) => {
+    const invite = await tx.invite.findUnique({ where: { code } });
+    if (!invite) throw new HttpError(404, "Invite not found");
+
+    const existing = await tx.serverMember.findUnique({
+      where: { serverId_userId: { serverId: invite.serverId, userId } },
+    });
+    if (existing) return existing;
+
+    const now = new Date();
+    if (invite.expiresAt && invite.expiresAt <= now) throw new HttpError(410, "Invite expired");
+
+    const reserved = await tx.invite.updateMany({
+      where: {
+        code,
+        ...(invite.maxUses === null ? {} : { uses: { lt: invite.maxUses } }),
+      },
+      data: { uses: { increment: 1 } },
+    });
+    if (reserved.count === 0) throw new HttpError(410, "Invite has reached its use limit");
+
+    return tx.serverMember.create({ data: { serverId: invite.serverId, userId } });
+  });
 }
 
 export async function leave(serverId: string, userId: string) {
@@ -126,9 +175,9 @@ export async function requirePermission(
   return permissions;
 }
 
-export async function update(serverId: string, userId: string, { name }: UpdateServerInput) {
+export async function update(serverId: string, userId: string, input: UpdateServerInput) {
   await requirePermission(serverId, userId, "MANAGE_SERVER");
-  return prisma.server.update({ where: { id: serverId }, data: { name } });
+  return prisma.server.update({ where: { id: serverId }, data: input });
 }
 
 export async function remove(serverId: string, userId: string) {

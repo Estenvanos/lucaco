@@ -1,6 +1,12 @@
 import type { Request, Response } from "express";
 import { imageFileSchema } from "../images/images.schema.js";
-import { createServerSchema, serverIdSchema, updateServerSchema } from "./servers.schema.js";
+import {
+  createInviteSchema,
+  createServerSchema,
+  inviteCodeSchema,
+  serverIdSchema,
+  updateServerSchema,
+} from "./servers.schema.js";
 import * as serversService from "./servers.services.js";
 
 export async function create(req: Request, res: Response) {
@@ -40,6 +46,22 @@ export async function listMembers(req: Request, res: Response) {
 export async function join(req: Request, res: Response) {
   const { serverId } = serverIdSchema.parse(req.params);
   const member = await serversService.join(serverId, req.auth!.sub);
+  res.status(201).json({ id: member.id, serverId: member.serverId, joinedAt: member.joinedAt });
+}
+
+export async function createInvite(req: Request, res: Response) {
+  const { serverId } = serverIdSchema.parse(req.params);
+  const invite = await serversService.createInvite(
+    serverId,
+    req.auth!.sub,
+    createInviteSchema.parse(req.body ?? {}),
+  );
+  res.status(201).json(invite);
+}
+
+export async function acceptInvite(req: Request, res: Response) {
+  const { code } = inviteCodeSchema.parse(req.params);
+  const member = await serversService.acceptInvite(code, req.auth!.sub);
   res.status(201).json({ id: member.id, serverId: member.serverId, joinedAt: member.joinedAt });
 }
 

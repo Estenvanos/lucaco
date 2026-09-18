@@ -17,14 +17,33 @@ model User {
   createdAt       DateTime       @default(now()) @map("created_at") @db.Timestamptz
   updatedAt       DateTime       @updatedAt @map("updated_at") @db.Timestamptz
   sessions        Session[]
+  keys            UserKey[]
   ownedServers    Server[]
   memberships     ServerMember[]
+  createdInvites  Invite[]
   friendshipsLow  Friendship[]   @relation("friendshipLow")
   friendshipsHigh Friendship[]   @relation("friendshipHigh")
   friendRequests  Friendship[]   @relation("friendshipRequester")
   friendBlocks    Friendship[]   @relation("friendshipBlocker")
 
   @@map("users")
+}
+
+/// Public half of the user's E2E keypair (ECDH P-256, SPKI base64). The private key never
+/// leaves the browser (non-extractable CryptoKey in IndexedDB), so the server cannot decrypt.
+/// Rotating publishes a new row and deactivates the previous one; old rows stay so old
+/// messages can still name the key they were encrypted for.
+model UserKey {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  publicKey String   @map("public_key")
+  algorithm String   @default("ECDH-P256") @db.VarChar(32)
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("user_keys")
 }
 
 model Session {
@@ -43,17 +62,27 @@ model Session {
 }
 
 model Server {
-  id        String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  ownerId   String         @map("owner_id") @db.Uuid
-  name      String         @db.VarChar(100)
-  iconUrl   String?        @map("icon_url") // object storage key
-  createdAt DateTime       @default(now()) @map("created_at") @db.Timestamptz
-  owner     User           @relation(fields: [ownerId], references: [id])
-  members   ServerMember[]
-  roles     Role[]
+  id         String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ownerId    String           @map("owner_id") @db.Uuid
+  name       String           @db.VarChar(100)
+  iconUrl    String?          @map("icon_url") // object storage key
+  visibility ServerVisibility @default(public)
+  createdAt  DateTime         @default(now()) @map("created_at") @db.Timestamptz
+  owner      User             @relation(fields: [ownerId], references: [id])
+  members    ServerMember[]
+  roles      Role[]
+  invites    Invite[]
+  channels   Channel[]
 
   @@index([ownerId])
   @@map("servers")
+}
+
+enum ServerVisibility {
+  public
+  private
+
+  @@map("server_visibility")
 }
 
 model ServerMember {
@@ -97,6 +126,44 @@ model MemberRole {
 
   @@id([memberId, roleId])
   @@map("member_roles")
+}
+
+model Invite {
+  code      String    @id @db.VarChar(16)
+  serverId  String    @map("server_id") @db.Uuid
+  createdBy String    @map("created_by") @db.Uuid
+  maxUses   Int?      @map("max_uses")
+  uses      Int       @default(0)
+  expiresAt DateTime? @map("expires_at") @db.Timestamptz
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  server    Server    @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  creator   User      @relation(fields: [createdBy], references: [id])
+
+  @@index([serverId])
+  @@map("invites")
+}
+
+enum ChannelType {
+  text
+  voice
+
+  @@map("channel_type")
+}
+
+/// A server has many text channels and at most one voice channel; the single-voice rule is a
+/// partial unique index added by hand in the migration (Prisma cannot express a WHERE clause).
+model Channel {
+  id        String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  serverId  String      @map("server_id") @db.Uuid
+  type      ChannelType
+  name      String      @db.VarChar(100)
+  topic     String?
+  position  Int         @default(0)
+  createdAt DateTime    @default(now()) @map("created_at") @db.Timestamptz
+  server    Server      @relation(fields: [serverId], references: [id], onDelete: Cascade)
+
+  @@index([serverId])
+  @@map("channels")
 }
 
 enum FriendshipStatus {
