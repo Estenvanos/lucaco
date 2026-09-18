@@ -80,7 +80,7 @@ Estrutura obrigatória:
 
 ```
 frontend/src/
-  main.tsx                  monta React, QueryClientProvider, RouterProvider
+  main.tsx                  monta React, QueryClientProvider, AuthProvider, RouterProvider
   routes.tsx                árvore de rotas (layouts + pages)
   lib/
     api.ts                  httpClient (fetch + baseURL + Bearer + refresh no 401)
@@ -95,11 +95,13 @@ frontend/src/
     <modulo>/
       <modulo>.keys.ts      query keys do módulo
       <modulo>.api.ts       chamadas HTTP + hooks useQuery/useMutation do módulo
-  hooks/                    estado de página/UI (use<Pagina>.ts, use<Coisa>.ts)
+  contexts/<modulo>.context.ts   createContext do módulo (só o contexto, sem JSX nem lógica)
+  providers/<Modulo>Provider.tsx provider que preenche o contexto (ex.: AuthProvider)
+  hooks/                    estado de página/UI (use<Pagina>.ts, use<Coisa>.ts) e hook de acesso ao contexto (useAuth)
   pages/<modulo>/<Nome>Page.tsx
   layouts/
-    RootLayout.tsx          app logado: sidebar, header, <Outlet/>
-    AuthLayout.tsx          telas públicas de auth
+    RootLayout.tsx          app logado: exige usuário (useAuth), senão redireciona para sign-in
+    AuthLayout.tsx          telas públicas de auth (não exige usuário)
   components/
     shared/                 componentes reutilizados por mais de uma feature (Button, Modal, Avatar)
     <feature>/              componentes daquela feature
@@ -109,6 +111,8 @@ frontend/src/
 
 Regras:
 
+- **Contexto só para estado de app que muitos componentes leem** (ex.: sessão). `contexts/` guarda o `createContext`, `providers/` o componente que o preenche, e o consumo é sempre pelo hook (`useAuth()`), nunca `use(AuthContext)` direto. Dado de servidor dentro do provider continua vindo do TanStack Query — contexto não é store paralela.
+- **Sessão = `useAuth()`**: `{ user, isAuthenticated, isLoading }`. Guarda de rota logada fica no `RootLayout`.
 - **Proibido `useEffect`.** Sem exceção discutível: estado derivado se calcula no render; reação a interação vai no handler; dado de servidor vai em TanStack Query; reset de estado vai por `key`; acesso a DOM vai por ref callback; assinatura externa (socket, media stream, storage) vai por `useSyncExternalStore` ou por wrapper em `services/`. Se parecer que só `useEffect` resolve, pare e pergunte.
 - **Nenhuma god page.** Page só compõe: chama hooks e renderiza componentes. Lógica de estado sai para `hooks/`, acesso a API sai para `services/`. Page passando de ~120 linhas é sinal de que falta componente.
 - **Nenhum `interface`/`type` declarado em page ou componente.** Todo tipo mora em `types/<modulo>.types.ts` (inclusive props: `type ButtonProps` fica em `types/ui.types.ts`).

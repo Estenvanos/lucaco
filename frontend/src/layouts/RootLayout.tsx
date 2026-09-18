@@ -1,26 +1,15 @@
-import { Outlet, redirect } from "react-router";
+import { Navigate, Outlet } from "react-router";
 import { ROUTES } from "../constants/routes";
-import { getAccessToken, refreshAccessToken } from "../lib/api";
-import { queryClient } from "../lib/query-client";
-import { fetchMe } from "../services/users/users.api";
-import { usersKeys } from "../services/users/users.keys";
+import { useAuth } from "../hooks/useAuth";
 import { Sidebar } from "../components/shell/Sidebar";
 
-/**
- * Session bootstrap. Runs before the tree renders, which is why no component needs an effect:
- * on a cold load there is no access token in memory, so the refresh cookie is exchanged here.
- */
-export async function rootLoader() {
-  try {
-    if (!getAccessToken()) await refreshAccessToken();
-    await queryClient.ensureQueryData({ queryKey: usersKeys.me(), queryFn: fetchMe });
-    return null;
-  } catch {
-    return redirect(ROUTES.signIn);
-  }
-}
-
+/** Logged-in area: renders nothing while the session resolves, sends guests to sign-in. */
 export function RootLayout() {
+  const { isAuthenticated, isLoading } = useAuth();
+
+  if (isLoading) return null;
+  if (!isAuthenticated) return <Navigate to={ROUTES.signIn} replace />;
+
   return (
     <div className="root-layout">
       <Sidebar />
