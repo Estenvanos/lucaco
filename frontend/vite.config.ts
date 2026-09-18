@@ -9,8 +9,12 @@ export default defineConfig({
   server: {
     allowedHosts: [".ngrok-free.dev"],
     proxy: {
+      // One entry per API router in backend/src/server.ts — a missing prefix silently falls
+      // through to index.html and the request comes back as HTML.
       "/auth": api,
       "/users": api,
+      "/servers": api,
+      "/friends": api,
       "/socket.io": { target: api, ws: true },
     },
   },

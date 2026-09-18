@@ -1,6 +1,6 @@
 /** Run with `node src/lib/utils.check.ts` — fails loudly if the scoring rules drift. */
 import assert from "node:assert/strict";
-import { listRules, missingPasswordRules, scorePassword } from "./utils.ts";
+import { listRules, missingPasswordRules, ringDelta, scorePassword } from "./utils.ts";
 
 const level = (password: string) => scorePassword(password).level;
 
@@ -29,4 +29,13 @@ assert.equal(
 );
 assert.match(scorePassword("curta1").hint ?? "", /8 caracteres/);
 
-console.log("scorePassword: ok");
+assert.equal(ringDelta(3, 3, 8), 0, "the centred slot is at distance zero");
+assert.equal(ringDelta(4, 3, 8), 1);
+assert.equal(ringDelta(2, 3, 8), -1);
+assert.equal(ringDelta(0, 7, 8), 1, "wraps forward past the last slot");
+assert.equal(ringDelta(7, 0, 8), -1, "wraps backward past the first slot");
+assert.equal(ringDelta(0, 0.5, 8), -0.5, "a mid-drag offset keeps its fraction");
+assert.equal(ringDelta(0, 0, 1), 0, "a wheel holding only the add button never moves");
+assert.ok(Math.abs(ringDelta(4, 0, 8)) === 4, "the far side is half a ring away, either way");
+
+console.log("scorePassword + ringDelta: ok");
