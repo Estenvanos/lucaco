@@ -4,7 +4,8 @@ import { NotificationsPanel } from "../notifications/NotificationsPanel";
 /** App-wide bar above every logged-in page. Actions sit on the right; more will join them. */
 export function TopBar() {
   const panel = useNotificationsPanel();
-  const count = panel.notifications.length;
+  // Muted: the bell stays usable, just without the counter.
+  const count = panel.muted ? 0 : panel.notifications.length;
 
   return (
     <header className="top-bar">

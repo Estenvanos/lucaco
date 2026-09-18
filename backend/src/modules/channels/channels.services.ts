@@ -65,3 +65,24 @@ export async function canSend(channelId: string, userId: string) {
   await serversService.requirePermission(channel.serverId, userId, "SEND_MESSAGES");
   return channel;
 }
+
+/** Voice rooms are always backed by the server's persisted voice channel. */
+export async function canConnect(channelId: string, userId: string) {
+  const channel = await getById(channelId);
+  if (channel.type !== "voice") throw new HttpError(400, "Not a voice channel");
+  await serversService.requirePermission(channel.serverId, userId, "CONNECT");
+  return channel;
+}
+
+/** Members may see who is in voice without joining the call themselves. */
+export async function canViewVoice(channelId: string, userId: string) {
+  const channel = await canView(channelId, userId);
+  if (channel.type !== "voice") throw new HttpError(400, "Not a voice channel");
+  return channel;
+}
+
+export async function canStream(channelId: string, userId: string) {
+  const channel = await canConnect(channelId, userId);
+  await serversService.requirePermission(channel.serverId, userId, "STREAM");
+  return channel;
+}

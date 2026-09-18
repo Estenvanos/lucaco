@@ -9,3 +9,5 @@ authRouter.post("/sign-in", authController.signIn);
 authRouter.post("/refresh", authController.refresh);
 authRouter.post("/logout", authController.logout);
 authRouter.get("/token", requireAuth, authController.getToken);
+authRouter.patch("/password", requireAuth, authController.changePassword);
+authRouter.patch("/email", requireAuth, authController.changeEmail);

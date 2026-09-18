@@ -1,10 +1,13 @@
 import type { ReactNode } from "react";
 import type { z } from "zod";
 import type { signInSchema, signUpSchema } from "../schemas/auth.schema";
+import type { changeEmailSchema, changePasswordSchema } from "../schemas/users.schema";
 import type { PublicUser } from "./users.types";
 
 export type SignInInput = z.infer<typeof signInSchema>;
 export type SignUpInput = z.infer<typeof signUpSchema>;
+export type ChangePasswordInput = Omit<z.infer<typeof changePasswordSchema>, "confirmPassword">;
+export type ChangeEmailInput = z.infer<typeof changeEmailSchema>;
 
 export type AuthSession = { accessToken: string; user: PublicUser };
 export type RefreshResponse = { accessToken: string };

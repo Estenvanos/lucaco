@@ -5,8 +5,8 @@ import { joinSchema, screenSchema, signalSchema } from "./voice.schema.js";
 import * as voiceService from "./voice.services.js";
 
 export async function join(io: Server, socket: Socket, payload: unknown) {
-  const { roomId } = joinSchema.parse(payload);
-  return { peers: await voiceService.join(io, socket.id, roomId) };
+  const { channelId } = joinSchema.parse(payload);
+  return { peers: await voiceService.join(io, socket.id, socket.data.userId, channelId) };
 }
 
 export async function leave(io: Server, socket: Socket) {
@@ -14,9 +14,22 @@ export async function leave(io: Server, socket: Socket) {
   return { ok: true };
 }
 
-export function screen(io: Server, socket: Socket, payload: unknown) {
+export async function watch(io: Server, socket: Socket, payload: unknown) {
+  const { channelId } = joinSchema.parse(payload);
+  return { participants: await voiceService.watch(io, socket.id, socket.data.userId, channelId) };
+}
+
+export function unwatch(io: Server, socket: Socket, payload: unknown) {
+  const { channelId } = joinSchema.parse(payload);
+  voiceService.unwatch(io, socket.id, channelId);
+  return { ok: true };
+}
+
+export async function screen(io: Server, socket: Socket, payload: unknown) {
   const { sharing } = screenSchema.parse(payload);
-  if (!voiceService.setSharing(io, socket.id, sharing)) throw new HttpError(409, "Join a room first");
+  if (!(await voiceService.setSharing(io, socket.id, socket.data.userId, sharing))) {
+    throw new HttpError(409, "Join a room first");
+  }
   return { ok: true };
 }
 

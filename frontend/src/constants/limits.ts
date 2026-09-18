@@ -6,6 +6,7 @@ export const LIMITS = {
   email: { max: 255 },
   serverName: { min: 2, max: 100 },
   serverDescription: { max: 300 },
+  channelName: { max: 100 },
   friendRequestMessage: { max: 120 },
   /** Plaintext cap: the ciphertext (base64 + GCM tag) must fit the API's 8 KiB limit. */
   messageText: { max: 2000 },

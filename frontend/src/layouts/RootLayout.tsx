@@ -6,13 +6,14 @@ import { TopBar } from "../components/shell/TopBar";
 
 /** Logged-in area: renders nothing while the session resolves, sends guests to sign-in. */
 export function RootLayout() {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { user, isAuthenticated, isLoading } = useAuth();
 
   if (isLoading) return null;
   if (!isAuthenticated) return <Navigate to={ROUTES.signIn} replace />;
 
   return (
-    <div className="root-layout">
+    // styles.css reads data-theme through :has(), so the tokens on :root and <body> follow it.
+    <div className="root-layout" data-theme={user?.settings.theme}>
       <Sidebar />
       <div className="root-main">
         <TopBar />

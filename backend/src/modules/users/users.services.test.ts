@@ -3,7 +3,7 @@ import { jest } from "@jest/globals";
 /** jest.fn() with no type argument infers `never` parameters, which breaks mockResolvedValue. */
 const mock = () => jest.fn<(...args: any[]) => any>();
 
-const user = { findUnique: mock(), update: mock() };
+const user = { findUnique: mock(), findMany: mock(), update: mock() };
 const userKey = { findFirst: mock(), create: mock(), updateMany: mock() };
 const $transaction = jest.fn(async (fn: any) => fn({ userKey }));
 const store = jest.fn<(...args: unknown[]) => Promise<string>>();
@@ -23,6 +23,12 @@ const userRow = (over: Record<string, unknown> = {}) => ({
   passwordHash: "argon2id$secret",
   displayName: null,
   avatarUrl: null,
+  status: "online" as const,
+  theme: "system" as const,
+  notificationsMuted: false,
+  hiddenNotificationTags: [],
+  audioInputId: null,
+  audioOutputId: null,
   createdAt: new Date(),
   updatedAt: new Date(),
   ...over,
@@ -48,6 +54,70 @@ describe("toPublicUser", () => {
       avatarUrl: "signed:images/avatars/a.webp",
     });
     await expect(users.toPublicUser(userRow())).resolves.toMatchObject({ avatarUrl: null });
+  });
+});
+
+describe("settings", () => {
+  it("go out with the owner's own user, still without the hash", async () => {
+    const row = userRow({ theme: "light", audioInputId: "mic-1", hiddenNotificationTags: ["new_message"] });
+
+    const publicUser = await users.toPublicUser(row);
+
+    expect(publicUser.settings).toEqual({
+      theme: "light",
+      notificationsMuted: false,
+      hiddenNotificationTags: ["new_message"],
+      audioInputId: "mic-1",
+      audioOutputId: null,
+    });
+    expect(JSON.stringify(publicUser)).not.toContain("argon2id");
+  });
+
+  it("stores only the fields that were sent", async () => {
+    user.update.mockResolvedValue(userRow({ notificationsMuted: true }));
+
+    await users.updateSettings(USER_ID, { notificationsMuted: true });
+
+    expect(user.update).toHaveBeenCalledWith({ where: { id: USER_ID }, data: { notificationsMuted: true } });
+  });
+
+  it("stay out of the public profile other users see", async () => {
+    user.findMany.mockResolvedValue([userRow({ audioInputId: "mic-1" })]);
+
+    const profile = (await users.getProfiles([USER_ID])).get(USER_ID);
+
+    expect(profile).not.toHaveProperty("settings");
+    expect(JSON.stringify(profile)).not.toContain("mic-1");
+  });
+});
+
+describe("updateProfile", () => {
+  it("409s when someone else already has the username", async () => {
+    user.findUnique.mockResolvedValue(userRow({ id: "22222222-2222-2222-2222-222222222222", username: "taken" }));
+
+    await expect(users.updateProfile(USER_ID, { username: "taken" })).rejects.toMatchObject({ status: 409 });
+    expect(user.update).not.toHaveBeenCalled();
+  });
+
+  it("lets the user resend their own username with a new display name", async () => {
+    user.findUnique.mockResolvedValue(userRow());
+    user.update.mockResolvedValue(userRow({ displayName: "Pessoa" }));
+
+    await users.updateProfile(USER_ID, { username: "person", displayName: "Pessoa" });
+
+    expect(user.update).toHaveBeenCalledWith({
+      where: { id: USER_ID },
+      data: { username: "person", displayName: "Pessoa" },
+    });
+  });
+});
+
+describe("updateStatus", () => {
+  it("stores the chosen status on the user's own row", async () => {
+    user.update.mockResolvedValue(userRow({ status: "dnd" }));
+
+    await expect(users.updateStatus(USER_ID, { status: "dnd" })).resolves.toMatchObject({ status: "dnd" });
+    expect(user.update).toHaveBeenCalledWith({ where: { id: USER_ID }, data: { status: "dnd" } });
   });
 });
 

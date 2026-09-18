@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export const joinSchema = z.object({
-  roomId: z.string().trim().min(1).max(64),
+  channelId: z.string().uuid(),
 });
 
 export const screenSchema = z.object({

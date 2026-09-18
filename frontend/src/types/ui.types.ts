@@ -2,10 +2,18 @@ import type { ButtonHTMLAttributes, ChangeEvent, FormEvent, InputHTMLAttributes,
 import type { ZodForm } from "./form.types";
 import type { AddFriendInput, FriendsTab, PublicFriendship } from "./friends.types";
 import type { ChatRow, Conversation } from "./messages.types";
-import type { UserProfile } from "./users.types";
+import type { SettingsSection, UserProfile } from "./users.types";
 import type { AppNotification } from "./notifications.types";
 import type { PasswordStrength } from "./password.types";
-import type { DiscoveredServer, PublicServer, ServerCategory } from "./servers.types";
+import type { VoiceSnapshot, VoiceStream } from "./voice.types";
+import type {
+  Channel,
+  CreateChannelInput,
+  DiscoveredServer,
+  PublicServer,
+  ServerCategory,
+  ServerMember,
+} from "./servers.types";
 
 export type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & { loading?: boolean };
 
@@ -86,7 +94,7 @@ export type JoinServerDialogProps = { onClose: () => void; onDone: (serverId: st
 
 export type ImagePickerProps = {
   label: string;
-  name: "icon" | "banner";
+  name: "icon" | "banner" | "avatar";
   previewUrl: string | null;
   /** wide = banner proportions, square = icon. */
   shape: "wide" | "square";
@@ -169,3 +177,36 @@ export type ComposerProps = {
 export type ProfileCardProps = { user: UserProfile };
 
 export type ChatViewProps = { peerId: string };
+
+export type ServerChannelsProps = {
+  server: PublicServer;
+  currentUserId: string;
+  voiceChannel: Channel | null;
+  members: ServerMember[];
+  textChannels: Channel[];
+  activeChannelId: string | null;
+  /** Shows the "+" that opens the new text channel form. */
+  canManage: boolean;
+  creating: boolean;
+  onToggleCreate: () => void;
+  createForm: ZodForm<CreateChannelInput> & { loading: boolean };
+  voice: VoiceSnapshot;
+  onJoinVoice: () => void;
+  onLeaveVoice: () => void;
+  onMuteVoice: () => void;
+  onDeafenVoice: () => void;
+  onShareVoice: () => void;
+};
+
+export type ChannelViewProps = { channel: Channel };
+
+export type VoiceStageProps = {
+  voice: VoiceSnapshot;
+  outputId: string | null;
+};
+
+export type VoiceMediaProps = { item: VoiceStream; outputId: string | null; deafened: boolean };
+
+export type MemberListProps = { members: ServerMember[] };
+
+export type SettingsNavProps = { active: SettingsSection };

@@ -5,4 +5,6 @@ export const serversKeys = {
   discover: (query: string, category: string | null) =>
     [...serversKeys.all, "discover", query, category] as const,
   detail: (serverId: string) => [...serversKeys.all, "detail", serverId] as const,
+  channels: (serverId: string) => [...serversKeys.detail(serverId), "channels"] as const,
+  members: (serverId: string) => [...serversKeys.detail(serverId), "members"] as const,
 };

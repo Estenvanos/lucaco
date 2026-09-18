@@ -4,7 +4,7 @@ import jwt, { type SignOptions } from "jsonwebtoken";
 import { env } from "../../env.js";
 import { HttpError } from "../../lib/http-error.js";
 import { prisma } from "../../lib/prisma.js";
-import type { SignInInput, SignUpInput } from "./auth.schema.js";
+import type { ChangeEmailInput, ChangePasswordInput, SignInInput, SignUpInput } from "./auth.schema.js";
 
 const DUMMY_HASH = await argon2.hash("timing-equalizer");
 
@@ -80,4 +80,35 @@ export async function logout(refreshToken: string) {
     where: { refreshTokenHash: sha256(refreshToken), revokedAt: null },
     data: { revokedAt: new Date() },
   });
+}
+
+/**
+ * Credential changes re-check the password: a stolen access token alone must not be enough to
+ * take the account over. 403, not 401: a 401 makes the client refresh and retry.
+ */
+async function verifyPassword(userId: string, password: string) {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) throw new HttpError(404, "User not found");
+  if (!(await argon2.verify(user.passwordHash, password))) throw new HttpError(403, "Wrong password");
+  return user;
+}
+
+/** Signs out every other device: whoever knew the old password loses their sessions. */
+export async function changePassword(userId: string, sessionId: string, input: ChangePasswordInput) {
+  await verifyPassword(userId, input.currentPassword);
+  await prisma.user.update({
+    where: { id: userId },
+    data: { passwordHash: await argon2.hash(input.newPassword, { type: argon2.argon2id }) },
+  });
+  await prisma.session.updateMany({
+    where: { userId, revokedAt: null, id: { not: sessionId } },
+    data: { revokedAt: new Date() },
+  });
+}
+
+export async function changeEmail(userId: string, { currentPassword, email }: ChangeEmailInput) {
+  await verifyPassword(userId, currentPassword);
+  const owner = await prisma.user.findUnique({ where: { email } });
+  if (owner && owner.id !== userId) throw new HttpError(409, "Email already in use");
+  return prisma.user.update({ where: { id: userId }, data: { email } });
 }

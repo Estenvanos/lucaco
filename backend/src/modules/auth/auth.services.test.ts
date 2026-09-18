@@ -1,5 +1,6 @@
 import { jest } from "@jest/globals";
 import { createHash } from "node:crypto";
+import argon2 from "argon2";
 import jwt from "jsonwebtoken";
 
 /** jest.fn() with no type argument infers `never` parameters, which breaks mockResolvedValue. */
@@ -8,7 +9,7 @@ const mock = () => jest.fn<(...args: any[]) => any>();
 const SECRET = "test-secret-with-at-least-32-characters";
 
 const session = { create: mock(), findUnique: mock(), updateMany: mock() };
-const user = { create: mock(), findFirst: mock() };
+const user = { create: mock(), findFirst: mock(), findUnique: mock(), update: mock() };
 
 jest.unstable_mockModule("../../lib/prisma.js", () => ({ prisma: { session, user } }));
 jest.unstable_mockModule("../../env.js", () => ({
@@ -160,5 +161,80 @@ describe("logout", () => {
       where: { refreshTokenHash: sha256("plain-token"), revokedAt: null },
       data: { revokedAt: expect.any(Date) },
     });
+  });
+});
+
+describe("changePassword", () => {
+  const PASSWORD = "old-password-123";
+  let storedHash: string;
+
+  beforeAll(async () => {
+    storedHash = await argon2.hash(PASSWORD, { type: argon2.argon2id });
+  });
+
+  beforeEach(() => user.findUnique.mockResolvedValue({ id: USER_ID, passwordHash: storedHash }));
+
+  it("403s on a wrong current password and changes nothing", async () => {
+    await expect(
+      auth.changePassword(USER_ID, "session-1", { currentPassword: "wrong", newPassword: "new-password-123" }),
+    ).rejects.toMatchObject({ status: 403 });
+
+    expect(user.update).not.toHaveBeenCalled();
+    expect(session.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("stores an argon2id hash, never the new password itself", async () => {
+    await auth.changePassword(USER_ID, "session-1", { currentPassword: PASSWORD, newPassword: "new-password-123" });
+
+    const { passwordHash } = user.update.mock.calls[0]![0].data;
+    expect(passwordHash).toMatch(/^\$argon2id\$/);
+    await expect(argon2.verify(passwordHash, "new-password-123")).resolves.toBe(true);
+  });
+
+  it("signs out every other session but keeps the current one", async () => {
+    await auth.changePassword(USER_ID, "session-1", { currentPassword: PASSWORD, newPassword: "new-password-123" });
+
+    expect(session.updateMany).toHaveBeenCalledWith({
+      where: { userId: USER_ID, revokedAt: null, id: { not: "session-1" } },
+      data: { revokedAt: expect.any(Date) },
+    });
+  });
+});
+
+describe("changeEmail", () => {
+  const PASSWORD = "old-password-123";
+  let storedHash: string;
+
+  beforeAll(async () => {
+    storedHash = await argon2.hash(PASSWORD, { type: argon2.argon2id });
+  });
+
+  it("403s on a wrong password before looking at the new email", async () => {
+    user.findUnique.mockResolvedValue({ id: USER_ID, passwordHash: storedHash });
+
+    await expect(
+      auth.changeEmail(USER_ID, { currentPassword: "wrong", email: "new@example.com" }),
+    ).rejects.toMatchObject({ status: 403 });
+    expect(user.update).not.toHaveBeenCalled();
+  });
+
+  it("409s when another account already uses the email", async () => {
+    user.findUnique
+      .mockResolvedValueOnce({ id: USER_ID, passwordHash: storedHash })
+      .mockResolvedValueOnce({ id: "someone-else" });
+
+    await expect(
+      auth.changeEmail(USER_ID, { currentPassword: PASSWORD, email: "taken@example.com" }),
+    ).rejects.toMatchObject({ status: 409 });
+    expect(user.update).not.toHaveBeenCalled();
+  });
+
+  it("saves the new email with the right password", async () => {
+    user.findUnique.mockResolvedValueOnce({ id: USER_ID, passwordHash: storedHash }).mockResolvedValueOnce(null);
+    user.update.mockResolvedValue({ id: USER_ID, email: "new@example.com" });
+
+    await auth.changeEmail(USER_ID, { currentPassword: PASSWORD, email: "new@example.com" });
+
+    expect(user.update).toHaveBeenCalledWith({ where: { id: USER_ID }, data: { email: "new@example.com" } });
   });
 });

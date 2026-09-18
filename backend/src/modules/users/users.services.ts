@@ -4,7 +4,12 @@ import { prisma } from "../../lib/prisma.js";
 import { signedGetUrl } from "../../lib/storage.js";
 import type { ImageFile } from "../images/images.schema.js";
 import * as imagesService from "../images/images.services.js";
-import type { PublishKeyInput } from "./users.schema.js";
+import type {
+  PublishKeyInput,
+  UpdateProfileInput,
+  UpdateSettingsInput,
+  UpdateStatusInput,
+} from "./users.schema.js";
 
 export async function toPublicUser(user: User) {
   return {
@@ -13,7 +18,15 @@ export async function toPublicUser(user: User) {
     email: user.email,
     displayName: user.displayName,
     avatarUrl: user.avatarUrl ? await signedGetUrl(user.avatarUrl) : null,
+    status: user.status,
     createdAt: user.createdAt,
+    settings: {
+      theme: user.theme,
+      notificationsMuted: user.notificationsMuted,
+      hiddenNotificationTags: user.hiddenNotificationTags,
+      audioInputId: user.audioInputId,
+      audioOutputId: user.audioOutputId,
+    },
   };
 }
 
@@ -42,6 +55,23 @@ export async function getProfiles(ids: string[]) {
     })),
   );
   return new Map(profiles.map((profile) => [profile.id, profile]));
+}
+
+export function updateStatus(userId: string, { status }: UpdateStatusInput) {
+  return prisma.user.update({ where: { id: userId }, data: { status } });
+}
+
+/** The unique index still guards the race; this check only gives the taken case a clear message. */
+export async function updateProfile(userId: string, input: UpdateProfileInput) {
+  if (input.username) {
+    const owner = await prisma.user.findUnique({ where: { username: input.username } });
+    if (owner && owner.id !== userId) throw new HttpError(409, "Username already taken");
+  }
+  return prisma.user.update({ where: { id: userId }, data: input });
+}
+
+export function updateSettings(userId: string, input: UpdateSettingsInput) {
+  return prisma.user.update({ where: { id: userId }, data: input });
 }
 
 export async function updateAvatar(userId: string, file: ImageFile) {
