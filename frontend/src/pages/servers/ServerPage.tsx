@@ -12,7 +12,7 @@ export function ServerPage() {
   if (!page.server) return null;
 
   return (
-    <div className="server">
+    <div className="server" data-call={page.inCall || undefined}>
       <ServerChannels
         server={page.server}
         currentUserId={page.currentUserId}
@@ -30,11 +30,26 @@ export function ServerPage() {
         onMuteVoice={page.toggleVoiceMute}
         onDeafenVoice={page.toggleVoiceDeafen}
         onShareVoice={page.toggleScreenShare}
+        onUserVolume={page.setUserVolume}
+        onUserMute={page.toggleUserMute}
       />
-      {page.voice.channelId === page.voiceChannel?.id ? (
+      {page.inCall ? (
         <VoiceStage
           voice={page.voice}
           outputId={page.audioOutputId}
+          channelName={page.voiceChannel?.name ?? "Voz"}
+          tiles={page.tiles}
+          chatChannel={page.textChannels[0] ?? null}
+          chatOpen={page.chatOpen}
+          onToggleChat={page.toggleChat}
+          onMute={page.toggleVoiceMute}
+          onDeafen={page.toggleVoiceDeafen}
+          onShare={page.toggleScreenShare}
+          onLeave={page.leaveVoice}
+          onUserVolume={page.setUserVolume}
+          onUserMute={page.toggleUserMute}
+          onWatch={page.watchStream}
+          onUnwatch={page.unwatchStream}
         />
       ) : page.activeChannel ? (
         // key: switching channels starts the view fresh instead of carrying the draft over.
@@ -42,7 +57,8 @@ export function ServerPage() {
       ) : (
         <p className="chat-empty">{page.channelsLoading ? "Carregando canais..." : "Nenhum canal de texto."}</p>
       )}
-      <MemberList members={page.members} />
+      {/* In a call the stage takes the rest of the screen; only the channels column stays. */}
+      {!page.inCall && <MemberList members={page.members} />}
     </div>
   );
 }

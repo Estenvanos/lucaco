@@ -1,6 +1,7 @@
+import { X } from "lucide-react";
 import type { ChannelViewProps } from "../../types/ui.types";
 
-export function ChannelView({ channel }: ChannelViewProps) {
+export function ChannelView({ channel, onClose }: ChannelViewProps) {
   return (
     <section className="chat-main">
       <header className="chat-header">
@@ -11,6 +12,12 @@ export function ChannelView({ channel }: ChannelViewProps) {
           {channel.name}
         </h1>
         {channel.topic && <span className="chat-header-typing">{channel.topic}</span>}
+        {onClose && (
+          <button type="button" className="voice-icon-button chat-header-close" title="Fechar chat" onClick={onClose}>
+            <X aria-hidden />
+            <span className="sr-only">Fechar chat</span>
+          </button>
+        )}
       </header>
       <div className="chat-scroll">
         <div className="chat-messages">

@@ -1,7 +1,7 @@
 import type { Server, Socket } from "socket.io";
 import { HttpError } from "../../lib/http-error.js";
 import { logger } from "../../lib/logger.js";
-import { joinSchema, screenSchema, signalSchema } from "./voice.schema.js";
+import { joinSchema, screenSchema, signalSchema, streamWatchSchema } from "./voice.schema.js";
 import * as voiceService from "./voice.services.js";
 
 export async function join(io: Server, socket: Socket, payload: unknown) {
@@ -30,6 +30,17 @@ export async function screen(io: Server, socket: Socket, payload: unknown) {
   if (!(await voiceService.setSharing(io, socket.id, socket.data.userId, sharing))) {
     throw new HttpError(409, "Join a room first");
   }
+  return { ok: true };
+}
+
+export async function watchStream(io: Server, socket: Socket, payload: unknown) {
+  const { socketId } = streamWatchSchema.parse(payload);
+  await voiceService.watchStream(io, socket.id, socketId);
+  return { ok: true };
+}
+
+export async function unwatchStream(io: Server, socket: Socket) {
+  await voiceService.unwatchStream(io, socket.id);
   return { ok: true };
 }
 

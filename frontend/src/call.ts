@@ -20,6 +20,8 @@ export class Call {
   private peers = new Map<string, Peer>();
   private mic: MediaStream | null = null;
   private screen: MediaStream | null = null;
+  /** Peers that asked to watch the share: the tab is only sent to them. */
+  private viewers = new Set<string>();
   private statsTimer: number | null = null;
 
   constructor(
@@ -35,11 +37,25 @@ export class Call {
       this.emitPeers();
       if (sharing) this.events.onStatus(`${peer.username} começou a compartilhar a aba`);
     });
+    socket.on(SOCKET_EVENTS.voiceViewer, ({ socketId, watching }: { socketId: string; watching: boolean }) => {
+      const pc = this.peers.get(socketId)?.pc;
+      if (watching) {
+        this.viewers.add(socketId);
+        if (pc) this.addScreenTracks(pc);
+      } else {
+        this.viewers.delete(socketId);
+        if (pc) this.removeScreenTracks(pc);
+      }
+    });
     socket.on(SOCKET_EVENTS.voiceSignal, (signal: Signal) => this.handleSignal(signal).catch(console.error));
   }
 
   get sharing() {
     return this.screen !== null;
+  }
+
+  get micStream() {
+    return this.mic;
   }
 
   async join(channelId: string, audioInputId: string | null = null) {
@@ -104,8 +120,7 @@ export class Call {
 
     video.contentHint = "detail";
     video.addEventListener("ended", () => this.stopShare()); // "Stop sharing" button of the browser
-    this.screen = stream;
-    for (const peer of this.peers.values()) this.addScreenTracks(peer.pc);
+    this.screen = stream; // sent to nobody yet: each viewer opts in through voice:viewer
     this.events.onStream("local-screen", stream, "Você (aba)");
     const response = await this.socket.emitWithAck(SOCKET_EVENTS.voiceScreen, { sharing: true });
     if (response.error) {
@@ -139,24 +154,38 @@ export class Call {
       this.statsTimer = null;
     }
     if (!this.screen) return;
-    const tracks = this.screen.getTracks();
-    tracks.forEach((t) => t.stop());
-    for (const { pc } of this.peers.values()) {
-      for (const sender of pc.getSenders()) {
-        if (sender.track && tracks.includes(sender.track)) pc.removeTrack(sender);
-      }
-    }
+    for (const { pc } of this.peers.values()) this.removeScreenTracks(pc);
+    this.screen.getTracks().forEach((t) => t.stop());
     this.screen = null;
+    this.viewers.clear();
     this.events.onStream("local-screen", null, "");
     this.socket.emit(SOCKET_EVENTS.voiceScreen, { sharing: false });
+  }
+
+  async watchStream(socketId: string) {
+    const res = await this.socket.emitWithAck(SOCKET_EVENTS.voiceStreamWatch, { socketId });
+    if (res.error) throw new Error(res.error);
+  }
+
+  unwatchStream() {
+    this.socket.emit(SOCKET_EVENTS.voiceStreamUnwatch, {});
   }
 
   private addScreenTracks(pc: RTCPeerConnection) {
     const screen = this.screen;
     if (!screen) return;
+    const sending = pc.getSenders().map((s) => s.track);
     for (const track of screen.getTracks()) {
+      if (sending.includes(track)) continue;
       const sender = pc.addTrack(track, screen);
       if (track.kind === "video") this.tuneScreenSender(pc, sender);
+    }
+  }
+
+  private removeScreenTracks(pc: RTCPeerConnection) {
+    const tracks = this.screen?.getTracks() ?? [];
+    for (const sender of pc.getSenders()) {
+      if (sender.track && tracks.includes(sender.track)) pc.removeTrack(sender);
     }
   }
 
@@ -194,7 +223,7 @@ export class Call {
 
     const mic = this.mic;
     mic.getTracks().forEach((t) => pc.addTrack(t, mic));
-    this.addScreenTracks(pc);
+    if (this.viewers.has(info.socketId)) this.addScreenTracks(pc);
 
     pc.onicecandidate = ({ candidate }) => {
       if (candidate) this.socket.emit(SOCKET_EVENTS.voiceSignal, { to: info.socketId, candidate: candidate.toJSON() });
@@ -268,6 +297,6 @@ export class Call {
   }
 
   private emitPeers() {
-    this.events.onPeersChange([...this.peers.values()].map(({ socketId, userId, username, sharing }) => ({ socketId, userId, username, sharing })));
+    this.events.onPeersChange([...this.peers.values()].map(({ socketId, userId, username, sharing, viewing }) => ({ socketId, userId, username, sharing, viewing })));
   }
 }

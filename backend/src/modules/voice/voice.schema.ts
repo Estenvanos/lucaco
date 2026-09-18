@@ -4,6 +4,10 @@ export const joinSchema = z.object({
   channelId: z.string().uuid(),
 });
 
+export const streamWatchSchema = z.object({
+  socketId: z.string().min(1).max(64),
+});
+
 export const screenSchema = z.object({
   sharing: z.boolean(),
 });

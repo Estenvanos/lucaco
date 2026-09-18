@@ -5,7 +5,7 @@ import type { ChatRow, Conversation } from "./messages.types";
 import type { SettingsSection, UserProfile } from "./users.types";
 import type { AppNotification } from "./notifications.types";
 import type { PasswordStrength } from "./password.types";
-import type { VoiceSnapshot, VoiceStream } from "./voice.types";
+import type { UserAudio, VoiceSnapshot, VoiceStream, VoiceTile } from "./voice.types";
 import type {
   Channel,
   CreateChannelInput,
@@ -196,16 +196,48 @@ export type ServerChannelsProps = {
   onMuteVoice: () => void;
   onDeafenVoice: () => void;
   onShareVoice: () => void;
+  onUserVolume: (userId: string, volume: number) => void;
+  onUserMute: (userId: string) => void;
 };
 
-export type ChannelViewProps = { channel: Channel };
+/** `onClose` shows the close button: the channel is a side panel of the voice call. */
+export type ChannelViewProps = { channel: Channel; onClose?: () => void };
 
 export type VoiceStageProps = {
   voice: VoiceSnapshot;
   outputId: string | null;
+  channelName: string;
+  tiles: VoiceTile[];
+  /** Text channel the chat button opens beside the call ("geral"). */
+  chatChannel: Channel | null;
+  chatOpen: boolean;
+  onToggleChat: () => void;
+  onMute: () => void;
+  onDeafen: () => void;
+  onShare: () => void;
+  onLeave: () => void;
+  onUserVolume: (userId: string, volume: number) => void;
+  onUserMute: (userId: string) => void;
+  onWatch: (socketId: string) => void;
+  onUnwatch: () => void;
 };
 
-export type VoiceMediaProps = { item: VoiceStream; outputId: string | null; deafened: boolean };
+/** `local` = this tab's own tile: no per-user audio menu. */
+export type VoiceTileProps = {
+  tile: VoiceTile;
+  local: boolean;
+  /** Still of this tab's own share, shown on the local tile while sharing. */
+  preview: string | null;
+  onWatch: () => void;
+  onVolume: (volume: number) => void;
+  onMute: () => void;
+};
+
+export type VoiceUserMenuProps = { name: string; audio: UserAudio; onVolume: (volume: number) => void; onMute: () => void };
+
+export type StreamViewersProps = { viewers: ChatPerson[] };
+
+export type VoiceMediaProps = { item: VoiceStream; outputId: string | null; deafened: boolean; audio: UserAudio | undefined };
 
 export type MemberListProps = { members: ServerMember[] };
 

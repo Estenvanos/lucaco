@@ -11,6 +11,8 @@ export function registerVoiceSocket(io: Server) {
     on(io, socket, SOCKET_EVENTS.voiceScreen, voiceController.screen);
     on(io, socket, SOCKET_EVENTS.voiceWatch, voiceController.watch);
     on(io, socket, SOCKET_EVENTS.voiceUnwatch, voiceController.unwatch);
+    on(io, socket, SOCKET_EVENTS.voiceStreamWatch, voiceController.watchStream);
+    on(io, socket, SOCKET_EVENTS.voiceStreamUnwatch, voiceController.unwatchStream);
     socket.on("disconnecting", () => voiceController.leave(io, socket));
   });
 }
