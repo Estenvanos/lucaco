@@ -10,3 +10,6 @@ dist
 .agents/
 .claude/
 .windsurf/
+
+# TypeScript incremental build cache
+*.tsbuildinfo
