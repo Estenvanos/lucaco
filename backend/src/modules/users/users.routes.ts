@@ -11,5 +11,7 @@ usersRouter.patch("/me/settings", requireAuth, usersController.updateSettings);
 usersRouter.patch("/me/status", requireAuth, usersController.updateStatus);
 usersRouter.put("/me/avatar", requireAuth, imageUpload("avatar"), usersController.updateAvatar);
 usersRouter.put("/me/keys", requireAuth, usersController.publishKey);
+usersRouter.put("/me/mutes/:userId", requireAuth, usersController.mute);
+usersRouter.delete("/me/mutes/:userId", requireAuth, usersController.unmute);
 // Peers fetch each other's public key to derive the shared DM key (ECDH).
 usersRouter.get("/:userId/key", requireAuth, usersController.getKey);

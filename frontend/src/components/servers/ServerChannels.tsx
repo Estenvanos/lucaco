@@ -1,13 +1,13 @@
-import { Mic, MicOff, Phone, ScreenShare, ScreenShareOff, Volume2, VolumeX } from "lucide-react";
+import { Mic, MicOff, Phone, Settings, ScreenShare, ScreenShareOff, Volume2, VolumeX } from "lucide-react";
 import { NavLink } from "react-router";
 import { ROUTES } from "../../constants/routes";
 import { formatDate } from "../../lib/utils";
 import type { ServerChannelsProps } from "../../types/ui.types";
-import { FormError } from "../shared/FormError";
 import { ChatAvatar } from "../chat/ChatAvatar";
 import { DEFAULT_USER_AUDIO } from "../../services/voice/voice";
 import { ServerAvatar } from "./ServerAvatar";
-import { openVoiceUserMenu, VoiceUserMenu } from "./VoiceUserMenu";
+import { openContextMenu } from "../../lib/context-menu";
+import { VoiceUserMenu } from "./VoiceUserMenu";
 
 export function ServerChannels({
   server,
@@ -17,9 +17,8 @@ export function ServerChannels({
   textChannels,
   activeChannelId,
   canManage,
-  creating,
-  onToggleCreate,
-  createForm,
+  onCreateChannel,
+  onEditChannel,
   voice,
   onJoinVoice,
   onLeaveVoice,
@@ -29,7 +28,8 @@ export function ServerChannels({
   onUserVolume,
   onUserMute,
 }: ServerChannelsProps) {
-  const nameError = createForm.errors.name ?? createForm.submitError;
+  const editable = (channel: { permissions: string[] }) =>
+    channel.permissions.includes("MANAGE_CHANNELS") || channel.permissions.includes("MANAGE_ROLES");
   const joinedHere = voice.channelId === voiceChannel?.id;
   const participantsByUser = new Map<string, (typeof voice.participants)[number]>();
   if (voice.observedChannelId === voiceChannel?.id) {
@@ -74,8 +74,24 @@ export function ServerChannels({
             </div>
           ) : (
             <div className="server-voice-bar">
-              <span>Canal de Voz</span>
-              <button type="button" disabled={voice.joining} onClick={onJoinVoice}>
+              <span>{voiceChannel.name}</span>
+              {editable(voiceChannel) && (
+                <button
+                  type="button"
+                  className="server-channel-gear"
+                  title="Editar canal"
+                  onClick={() => onEditChannel(voiceChannel)}
+                >
+                  <Settings aria-hidden />
+                  <span className="sr-only">Editar canal</span>
+                </button>
+              )}
+              <button
+                type="button"
+                disabled={voice.joining || !voiceChannel.permissions.includes("CONNECT")}
+                title={voiceChannel.permissions.includes("CONNECT") ? undefined : "Sem permissão para conectar"}
+                onClick={onJoinVoice}
+              >
                 {voice.joining ? "Entrando..." : "Entrar"}
               </button>
             </div>
@@ -91,7 +107,7 @@ export function ServerChannels({
                   <li
                     key={participant.userId}
                     tabIndex={hasMenu ? 0 : undefined}
-                    onContextMenu={hasMenu ? openVoiceUserMenu : undefined}
+                    onContextMenu={hasMenu ? openContextMenu : undefined}
                   >
                     <ChatAvatar user={{
                       id: participant.userId,
@@ -134,40 +150,37 @@ export function ServerChannels({
             <button
               type="button"
               className="server-text-add"
-              aria-expanded={creating}
               title="Criar canal de texto"
-              onClick={onToggleCreate}
+              onClick={onCreateChannel}
             >
               +<span className="sr-only">Criar canal de texto</span>
             </button>
           )}
         </div>
 
-        {creating && (
-          <form className="server-text-form" onSubmit={createForm.onSubmit} noValidate>
-            <input
-              name="name"
-              placeholder="novo-canal"
-              aria-label="Nome do canal"
-              aria-invalid={Boolean(nameError)}
-              autoFocus
-              disabled={createForm.loading}
-            />
-            <FormError message={nameError} />
-          </form>
-        )}
-
         <nav>
           {textChannels.map((channel) => (
-            <NavLink
-              key={channel.id}
-              to={ROUTES.channel(server.id, channel.id)}
-              className="server-text-link"
-              aria-current={channel.id === activeChannelId ? "page" : undefined}
-            >
-              <span aria-hidden>#</span>
-              {channel.name}
-            </NavLink>
+            <div key={channel.id} className="server-text-item">
+              <NavLink
+                to={ROUTES.channel(server.id, channel.id)}
+                className="server-text-link"
+                aria-current={channel.id === activeChannelId ? "page" : undefined}
+              >
+                <span aria-hidden>#</span>
+                {channel.name}
+              </NavLink>
+              {editable(channel) && (
+                <button
+                  type="button"
+                  className="server-channel-gear"
+                  title={`Editar #${channel.name}`}
+                  onClick={() => onEditChannel(channel)}
+                >
+                  <Settings aria-hidden />
+                  <span className="sr-only">Editar #{channel.name}</span>
+                </button>
+              )}
+            </div>
           ))}
         </nav>
       </section>

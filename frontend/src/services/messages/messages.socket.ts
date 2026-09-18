@@ -4,7 +4,8 @@ import { SOCKET_EVENTS } from "../../constants/socket-events";
 import { queryClient } from "../../lib/query-client";
 import { holdSocket, socket } from "../../lib/socket";
 import type { ChatPage, StoredMessage } from "../../types/messages.types";
-import { addToChat, markRead } from "./messages.api";
+import { addToCache, addToChat, markRead } from "./messages.api";
+import { keyForEpoch } from "./messages.channel-e2e";
 import { chatKey, decryptMessage } from "./messages.e2e";
 import { messagesKeys } from "./messages.keys";
 
@@ -78,3 +79,32 @@ export function sendTyping(peerId: string) {
   lastTyping = now;
   socket.emit(SOCKET_EVENTS.messageTyping, { peerId });
 }
+
+const channelSubscriptions = new Map<string, (notify: () => void) => () => void>();
+
+/** Same as chatSubscription for a server channel: decrypts with the message's epoch key. */
+function channelSubscription(me: string, channelId: string) {
+  let subscribe = channelSubscriptions.get(channelId);
+  if (subscribe) return subscribe;
+
+  const onMessage = async (message: StoredMessage) => {
+    if (message.channelId !== channelId) return;
+    const key = await keyForEpoch(me, channelId, message.keyEpoch);
+    addToCache(messagesKeys.channel(channelId), await decryptMessage(key, message));
+  };
+
+  subscribe = () => {
+    socket.on(SOCKET_EVENTS.messageNew, onMessage);
+    const release = holdSocket();
+    return () => {
+      socket.off(SOCKET_EVENTS.messageNew, onMessage);
+      release();
+    };
+  };
+  channelSubscriptions.set(channelId, subscribe);
+  return subscribe;
+}
+
+/** Keeps the open channel live. ponytail: no typing indicator in channels yet. */
+export const useChannelLive = (me: string, channelId: string) =>
+  useSyncExternalStore(channelSubscription(me, channelId), () => null);

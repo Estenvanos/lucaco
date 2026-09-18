@@ -47,6 +47,14 @@ export const useUpdateAvatar = () =>
     },
   });
 
+/** Silenciar / Dessilenciar: notifications from that user stop (or resume) arriving. */
+export const useSetMuted = () =>
+  useMutation({
+    mutationFn: ({ userId, muted }: { userId: string; muted: boolean }) =>
+      request<PublicUser>(ENDPOINTS.users.mute(userId), { method: muted ? "PUT" : "DELETE" }),
+    onSuccess: setMe,
+  });
+
 /**
  * Optimistic: a toggle or a theme applies on click. On failure the cache goes back to what the
  * server has.

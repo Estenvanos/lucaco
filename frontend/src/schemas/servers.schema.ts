@@ -36,11 +36,18 @@ export const joinServerSchema = z.object({
 });
 
 /** Same rule as the API: trimmed, then spaces become dashes ("bate papo" -> "bate-papo"). */
-export const createChannelSchema = z.object({
+export const channelFormSchema = z.object({
   name: z
     .string()
     .trim()
     .min(1, "Informe um nome")
     .max(LIMITS.channelName.max)
     .transform((name) => name.toLowerCase().replace(/\s+/g, "-")),
+  // An empty box clears the topic.
+  topic: z
+    .string()
+    .trim()
+    .max(LIMITS.channelTopic.max, `Até ${LIMITS.channelTopic.max} caracteres`)
+    .transform((topic) => topic || null)
+    .optional(),
 });

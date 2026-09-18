@@ -39,6 +39,8 @@ export type VoiceSnapshot = {
   streams: VoiceStream[];
   joining: boolean;
   muted: boolean;
+  /** False when the channel denies SPEAK: the mic stays muted and cannot be turned on. */
+  canSpeak: boolean;
   deafened: boolean;
   sharing: boolean;
   /** Socket id of the stream on screen: one at a time, never while sharing. */

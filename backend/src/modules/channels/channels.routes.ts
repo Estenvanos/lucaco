@@ -15,3 +15,6 @@ channelsRouter.use(requireAuth);
 channelsRouter.get("/:channelId", channelsController.get);
 channelsRouter.patch("/:channelId", channelsController.update);
 channelsRouter.delete("/:channelId", channelsController.remove);
+channelsRouter.get("/:channelId/permissions", channelsController.getPermissions);
+channelsRouter.put("/:channelId/permissions/roles/:roleId", channelsController.setRolePermission);
+channelsRouter.put("/:channelId/permissions/members/:memberId", channelsController.setMemberPermission);

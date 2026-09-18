@@ -6,7 +6,9 @@
 
 const DB_NAME = "lucaco-e2e";
 const STORE = "keys";
-const HKDF_INFO = new TextEncoder().encode("lucaco-dm-v1");
+const DM_INFO = "lucaco-dm-v1";
+/** Separate HKDF label: the key that wraps channel keys is never the DM key of the same pair. */
+const WRAP_INFO = "lucaco-channel-wrap-v1";
 
 const toBase64 = (bytes: ArrayBuffer | Uint8Array) =>
   btoa(String.fromCharCode(...new Uint8Array(bytes)));
@@ -42,14 +44,17 @@ export async function exportPublicKey(pair: CryptoKeyPair) {
 }
 
 /** Both sides get the same key: ECDH(my private, their public) == ECDH(their private, my public). */
-export async function deriveChatKey(myPrivate: CryptoKey, peerPublicBase64: string) {
+export const deriveChatKey = (myPrivate: CryptoKey, peerPublicBase64: string) =>
+  derivePairKey(myPrivate, peerPublicBase64, DM_INFO);
+
+async function derivePairKey(myPrivate: CryptoKey, peerPublicBase64: string, info: string) {
   const peerPublic = await crypto.subtle.importKey(
     "spki", fromBase64(peerPublicBase64), { name: "ECDH", namedCurve: "P-256" }, false, [],
   );
   const secret = await crypto.subtle.deriveBits({ name: "ECDH", public: peerPublic }, myPrivate, 256);
   const hkdf = await crypto.subtle.importKey("raw", secret, "HKDF", false, ["deriveKey"]);
   return crypto.subtle.deriveKey(
-    { name: "HKDF", hash: "SHA-256", salt: new Uint8Array(32), info: HKDF_INFO },
+    { name: "HKDF", hash: "SHA-256", salt: new Uint8Array(32), info: new TextEncoder().encode(info) },
     hkdf,
     { name: "AES-GCM", length: 256 },
     false,
@@ -71,4 +76,44 @@ export async function decryptText(key: CryptoKey, ciphertext: string, iv: string
   } catch {
     return null;
   }
+}
+
+/** Bytes in, bytes out: files (voice messages) are encrypted like text, IV random per file. */
+export async function encryptBytes(key: CryptoKey, data: ArrayBuffer) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  return { data: await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, data), iv: toBase64(iv) };
+}
+
+export async function decryptBytes(key: CryptoKey, data: ArrayBuffer, iv: string) {
+  try {
+    return await crypto.subtle.decrypt({ name: "AES-GCM", iv: fromBase64(iv) }, key, data);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A fresh AES key: a channel epoch key (arquitetura-lucaco.md 7.2) or a one-file key. Extractable
+ * because it is handed to others wrapped (or inside the message); it only lives in memory.
+ */
+export const generateKey = () =>
+  crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"]);
+
+export const exportKey = async (key: CryptoKey) => toBase64(await crypto.subtle.exportKey("raw", key));
+
+export const importKey = (raw: string) =>
+  crypto.subtle.importKey("raw", fromBase64(raw), "AES-GCM", true, ["encrypt", "decrypt"]);
+
+/** The key encrypted for one member: only ECDH(their private, my public) opens it. */
+export async function wrapKey(myPrivate: CryptoKey, recipientPublic: string, key: CryptoKey) {
+  const wrapping = await derivePairKey(myPrivate, recipientPublic, WRAP_INFO);
+  const { ciphertext, iv } = await encryptText(wrapping, await exportKey(key));
+  return { encryptedKey: ciphertext, iv };
+}
+
+/** null when it does not open (wrapped for another key of mine, tampered). */
+export async function unwrapKey(myPrivate: CryptoKey, wrapperPublic: string, encryptedKey: string, iv: string) {
+  const wrapping = await derivePairKey(myPrivate, wrapperPublic, WRAP_INFO);
+  const raw = await decryptText(wrapping, encryptedKey, iv);
+  return raw === null ? null : importKey(raw);
 }

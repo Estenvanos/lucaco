@@ -2,6 +2,9 @@ import type { Request, Response } from "express";
 import {
   channelIdSchema,
   createChannelSchema,
+  memberOverwriteParamsSchema,
+  overwriteSchema,
+  roleOverwriteParamsSchema,
   serverParamsSchema,
   updateChannelSchema,
 } from "./channels.schema.js";
@@ -32,5 +35,23 @@ export async function update(req: Request, res: Response) {
 export async function remove(req: Request, res: Response) {
   const { channelId } = channelIdSchema.parse(req.params);
   await channelsService.remove(channelId, req.auth!.sub);
+  res.status(204).end();
+}
+
+export async function getPermissions(req: Request, res: Response) {
+  const { channelId } = channelIdSchema.parse(req.params);
+  res.json(await channelsService.getPermissions(channelId, req.auth!.sub));
+}
+
+/** PUT with { allow: [], deny: [] } clears the overwrite, so there is no separate DELETE. */
+export async function setRolePermission(req: Request, res: Response) {
+  const { channelId, roleId } = roleOverwriteParamsSchema.parse(req.params);
+  await channelsService.setRolePermission(channelId, roleId, req.auth!.sub, overwriteSchema.parse(req.body));
+  res.status(204).end();
+}
+
+export async function setMemberPermission(req: Request, res: Response) {
+  const { channelId, memberId } = memberOverwriteParamsSchema.parse(req.params);
+  await channelsService.setMemberPermission(channelId, memberId, req.auth!.sub, overwriteSchema.parse(req.body));
   res.status(204).end();
 }

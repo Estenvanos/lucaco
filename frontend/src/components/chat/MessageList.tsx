@@ -1,14 +1,13 @@
 import { formatDateTime } from "../../lib/utils";
 import type { MessageListProps } from "../../types/ui.types";
+import { AudioMessage } from "./AudioMessage";
 import { ChatAvatar } from "./ChatAvatar";
 
 /**
  * column-reverse on the scroller keeps the view pinned to the newest message as rows arrive,
  * with no scroll effect: the browser anchors to the bottom by itself.
  */
-export function MessageList({ rows, me, peer, typing, hasOlder, loadingOlder, onLoadOlder }: MessageListProps) {
-  const peerName = peer.displayName ?? peer.username;
-
+export function MessageList({ rows, authorOf, intro, typingName, hasOlder, loadingOlder, onLoadOlder }: MessageListProps) {
   return (
     <div className="chat-scroll">
       <div className="chat-messages">
@@ -20,13 +19,13 @@ export function MessageList({ rows, me, peer, typing, hasOlder, loadingOlder, on
 
         {!hasOlder && (
           <div className="chat-start">
-            <strong>{peerName}</strong>
-            <p>Este é o começo da sua conversa com @{peer.username}. Só vocês dois conseguem ler.</p>
+            <strong>{intro.title}</strong>
+            <p>{intro.text}</p>
           </div>
         )}
 
         {rows.map((row) => {
-          const author = row.senderId === me.id ? me : peer;
+          const author = authorOf(row.senderId);
           return (
             <div key={row.id}>
               {row.day && (
@@ -43,7 +42,9 @@ export function MessageList({ rows, me, peer, typing, hasOlder, loadingOlder, on
                       <time dateTime={row.createdAt}>{formatDateTime(row.createdAt)}</time>
                     </header>
                   )}
-                  {row.text === null ? (
+                  {row.audio ? (
+                    <AudioMessage audio={row.audio} />
+                  ) : row.text === null ? (
                     <p className="chat-undecryptable">Não foi possível decifrar esta mensagem.</p>
                   ) : (
                     <p>{row.text}</p>
@@ -55,14 +56,14 @@ export function MessageList({ rows, me, peer, typing, hasOlder, loadingOlder, on
         })}
 
         <p className="chat-typing" aria-live="polite">
-          {typing && (
+          {typingName && (
             <>
               <span className="chat-typing-dots" aria-hidden>
                 <i />
                 <i />
                 <i />
               </span>
-              <strong>{peerName}</strong> está digitando...
+              <strong>{typingName}</strong> está digitando...
             </>
           )}
         </p>

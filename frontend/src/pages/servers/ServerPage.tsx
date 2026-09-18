@@ -1,4 +1,6 @@
-import { useParams } from "react-router";
+import { Navigate, useParams } from "react-router";
+import { ROUTES } from "../../constants/routes";
+import { ChannelSettings } from "../../components/servers/ChannelSettings";
 import { ChannelView } from "../../components/servers/ChannelView";
 import { MemberList } from "../../components/servers/MemberList";
 import { ServerChannels } from "../../components/servers/ServerChannels";
@@ -9,7 +11,7 @@ export function ServerPage() {
   const { serverId = "", channelId } = useParams();
   const page = useServerPage(serverId, channelId);
 
-  if (!page.server) return null;
+  if (!page.server) return page.gone ? <Navigate to={ROUTES.friends} replace /> : null;
 
   return (
     <div className="server" data-call={page.inCall || undefined}>
@@ -21,9 +23,8 @@ export function ServerPage() {
         textChannels={page.textChannels}
         activeChannelId={page.activeChannel?.id ?? null}
         canManage={page.canManage}
-        creating={page.creating}
-        onToggleCreate={page.toggleCreating}
-        createForm={page.createForm}
+        onCreateChannel={page.openCreateChannel}
+        onEditChannel={page.openChannelSettings}
         voice={page.voice}
         onJoinVoice={page.joinVoice}
         onLeaveVoice={page.leaveVoice}
@@ -58,7 +59,17 @@ export function ServerPage() {
         <p className="chat-empty">{page.channelsLoading ? "Carregando canais..." : "Nenhum canal de texto."}</p>
       )}
       {/* In a call the stage takes the rest of the screen; only the channels column stays. */}
-      {!page.inCall && <MemberList members={page.members} />}
+      {!page.inCall && <MemberList server={page.server} members={page.members} />}
+      {page.settings && (
+        <ChannelSettings
+          server={page.server}
+          channel={page.settings.channel}
+          type={page.settings.type}
+          members={page.members}
+          onClose={page.closeChannelSettings}
+          onCreated={page.onChannelCreated}
+        />
+      )}
     </div>
   );
 }

@@ -46,6 +46,13 @@ export const useAcceptFriend = () =>
     onSuccess: invalidate,
   });
 
+/** Ends any friendship or request; the blocked side cannot message or re-add. */
+export const useBlockUser = () =>
+  useMutation({
+    mutationFn: (userId: string) => request(ENDPOINTS.friends.block(userId), { method: "PUT" }),
+    onSuccess: invalidate,
+  });
+
 /** Declining drops the pending row, same endpoint as unfriending. */
 export const useDeclineFriend = () =>
   useMutation({

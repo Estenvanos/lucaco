@@ -26,6 +26,7 @@ export async function toPublicUser(user: User) {
       hiddenNotificationTags: user.hiddenNotificationTags,
       audioInputId: user.audioInputId,
       audioOutputId: user.audioOutputId,
+      mutedUserIds: user.mutedUserIds,
     },
   };
 }
@@ -74,6 +75,28 @@ export function updateSettings(userId: string, input: UpdateSettingsInput) {
   return prisma.user.update({ where: { id: userId }, data: input });
 }
 
+/** Right-click > Silenciar: notifications from that user stop being stored for this one. */
+export async function mute(userId: string, targetId: string) {
+  if (userId === targetId) throw new HttpError(409, "You cannot mute yourself");
+  const user = await getById(userId);
+  await getById(targetId);
+  if (user.mutedUserIds.includes(targetId)) return user;
+  return prisma.user.update({ where: { id: userId }, data: { mutedUserIds: { push: targetId } } });
+}
+
+export async function unmute(userId: string, targetId: string) {
+  const user = await getById(userId);
+  return prisma.user.update({
+    where: { id: userId },
+    data: { mutedUserIds: user.mutedUserIds.filter((id) => id !== targetId) },
+  });
+}
+
+export async function isMuted(userId: string, targetId: string) {
+  const muted = await prisma.user.count({ where: { id: userId, mutedUserIds: { has: targetId } } });
+  return muted > 0;
+}
+
 export async function updateAvatar(userId: string, file: ImageFile) {
   const previous = await getById(userId);
   const key = await imagesService.store(file, "avatars", userId);
@@ -99,4 +122,11 @@ export async function getActiveKey(userId: string) {
   const key = await prisma.userKey.findFirst({ where: { userId, isActive: true } });
   if (!key) throw new HttpError(404, "User has no published key");
   return { userId, publicKey: key.publicKey, algorithm: key.algorithm, createdAt: key.createdAt };
+}
+
+/** Active public keys of several users at once; users with no published key are left out. */
+export async function getActiveKeys(userIds: string[]) {
+  if (!userIds.length) return [];
+  const keys = await prisma.userKey.findMany({ where: { userId: { in: userIds }, isActive: true } });
+  return keys.map((k) => ({ userId: k.userId, publicKey: k.publicKey }));
 }

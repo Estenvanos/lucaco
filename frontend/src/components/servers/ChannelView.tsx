@@ -1,7 +1,12 @@
 import { X } from "lucide-react";
+import { useChannelChat } from "../../hooks/useChannelChat";
 import type { ChannelViewProps } from "../../types/ui.types";
+import { Composer } from "../chat/Composer";
+import { MessageList } from "../chat/MessageList";
 
 export function ChannelView({ channel, onClose }: ChannelViewProps) {
+  const chat = useChannelChat(channel);
+
   return (
     <section className="chat-main">
       <header className="chat-header">
@@ -19,21 +24,22 @@ export function ChannelView({ channel, onClose }: ChannelViewProps) {
           </button>
         )}
       </header>
-      <div className="chat-scroll">
-        <div className="chat-messages">
-          <div className="chat-start">
-            <strong>Bem-vindo a #{channel.name}</strong>
-            <p>Este é o começo do canal.</p>
-          </div>
-        </div>
-      </div>
-      {/* ponytail: channel messages need the group E2E key (keyEpoch) on top of the DM flow —
-          the composer turns on when the messages module learns scope "channel". */}
-      <div className="chat-composer">
-        <div className="chat-composer-box">
-          <textarea rows={1} placeholder={`Conversar em #${channel.name}`} aria-label="Mensagem" disabled />
-        </div>
-      </div>
+      {chat.loadError ? (
+        <p className="chat-empty">{chat.loadError}</p>
+      ) : chat.loading ? (
+        <p className="chat-empty">Abrindo canal seguro...</p>
+      ) : (
+        <MessageList
+          rows={chat.rows}
+          authorOf={chat.authorOf}
+          intro={chat.intro}
+          typingName={null}
+          hasOlder={chat.hasOlder}
+          loadingOlder={chat.loadingOlder}
+          onLoadOlder={chat.loadOlder}
+        />
+      )}
+      <Composer {...chat.composer} />
     </section>
   );
 }

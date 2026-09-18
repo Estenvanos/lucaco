@@ -13,6 +13,7 @@ let snapshot: VoiceSnapshot = {
   streams: [],
   joining: false,
   muted: false,
+  canSpeak: true,
   deafened: false,
   sharing: false,
   watching: null,
@@ -174,7 +175,14 @@ export async function joinVoice(channelId: string, audioInputId: string | null) 
     await call.join(channelId, audioInputId);
     meter("local-mic", call.micStream);
     meterTimer ??= window.setInterval(sampleSpeaking, SPEAKING_POLL_MS);
-    publish({ channelId, socketId: socket.id ?? null, joining: false, muted: false, status: "Conectado ao canal de voz" });
+    publish({
+      channelId,
+      socketId: socket.id ?? null,
+      joining: false,
+      muted: !call.canSpeak,
+      canSpeak: call.canSpeak,
+      status: call.canSpeak ? "Conectado ao canal de voz" : "Conectado — sem permissão para falar",
+    });
   } catch (error) {
     releaseSocket?.();
     releaseSocket = null;

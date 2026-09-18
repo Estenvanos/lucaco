@@ -28,6 +28,16 @@ export async function updateStatus(req: Request, res: Response) {
   res.json(await usersService.toPublicUser(user));
 }
 
+export async function mute(req: Request, res: Response) {
+  const { userId } = userIdSchema.parse(req.params);
+  res.json(await usersService.toPublicUser(await usersService.mute(req.auth!.sub, userId)));
+}
+
+export async function unmute(req: Request, res: Response) {
+  const { userId } = userIdSchema.parse(req.params);
+  res.json(await usersService.toPublicUser(await usersService.unmute(req.auth!.sub, userId)));
+}
+
 export async function updateAvatar(req: Request, res: Response) {
   const user = await usersService.updateAvatar(req.auth!.sub, imageFileSchema.parse(req.file));
   res.json(await usersService.toPublicUser(user));

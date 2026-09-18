@@ -21,6 +21,8 @@ export const SOCKET_EVENTS = {
   messageTyping: "message:typing",
   notificationNew: "notification:new",
   notificationRemoved: "notification:removed",
+  /** To a kicked or banned user: the server left their list. */
+  serverRemoved: "server:removed",
 } as const;
 
 /**
@@ -55,14 +57,35 @@ export const PERMISSIONS = {
   MANAGE_SERVER: 1n << 7n,
   KICK_MEMBERS: 1n << 8n,
   ADMINISTRATOR: 1n << 9n, // implies every other permission
+  MANAGE_CHANNELS: 1n << 10n, // create, edit and delete channels
+  SEND_VOICE_MESSAGES: 1n << 11n, // recorded audio in a text channel
+  BAN_MEMBERS: 1n << 12n, // remove a member for good
 } as const;
 
 export type PermissionName = keyof typeof PERMISSIONS;
+
+export const ALL_PERMISSIONS = Object.values(PERMISSIONS).reduce((acc, bit) => acc | bit, 0n);
+
+/**
+ * What a channel overwrite may touch. MANAGE_ROLES on a channel means "edit this channel's
+ * permissions". The frontend mirrors this list in constants/permissions.ts.
+ */
+export const CHANNEL_PERMISSIONS = [
+  "VIEW_CHANNELS",
+  "MANAGE_CHANNELS",
+  "MANAGE_ROLES",
+  "SEND_MESSAGES",
+  "SEND_VOICE_MESSAGES",
+  "CONNECT",
+  "SPEAK",
+  "STREAM",
+] as const satisfies readonly PermissionName[];
 
 /** What @everyone gets on a new server: talk, listen, share, nothing administrative. */
 export const DEFAULT_PERMISSIONS =
   PERMISSIONS.VIEW_CHANNELS |
   PERMISSIONS.SEND_MESSAGES |
+  PERMISSIONS.SEND_VOICE_MESSAGES |
   PERMISSIONS.CONNECT |
   PERMISSIONS.SPEAK |
   PERMISSIONS.STREAM;

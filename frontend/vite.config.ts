@@ -17,6 +17,8 @@ export default defineConfig({
       "/friends": api,
       "/notifications": api,
       "/messages": api,
+      "/channels": api,
+      "/media": api,
       "/socket.io": { target: api, ws: true },
     },
   },

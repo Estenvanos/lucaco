@@ -17,4 +17,5 @@ export const SOCKET_EVENTS = {
   messageTyping: "message:typing",
   notificationNew: "notification:new",
   notificationRemoved: "notification:removed",
+  serverRemoved: "server:removed",
 } as const;

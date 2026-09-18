@@ -23,6 +23,8 @@ model User {
   /// MediaDeviceInfo.deviceId, which is per browser and origin: may not exist on another machine.
   audioInputId           String?           @map("audio_input_id") @db.VarChar(256)
   audioOutputId          String?           @map("audio_output_id") @db.VarChar(256)
+  /// Users whose notifications are dropped before they are stored (right-click > Silenciar).
+  mutedUserIds           String[]          @default([]) @map("muted_user_ids") @db.Uuid
   createdAt         DateTime       @default(now()) @map("created_at") @db.Timestamptz
   updatedAt         DateTime       @updatedAt @map("updated_at") @db.Timestamptz
   sessions          Session[]
@@ -36,6 +38,9 @@ model User {
   friendBlocks      Friendship[]   @relation("friendshipBlocker")
   notifications     Notification[] @relation("notificationReceiver")
   notificationsSent Notification[] @relation("notificationOwner")
+  channelKeyShares  ChannelKeyShare[]
+  mediaFiles        MediaFile[]
+  serverBans        ServerBan[]
 
   @@map("users")
 }
@@ -104,9 +109,24 @@ model Server {
   roles       Role[]
   invites     Invite[]
   channels    Channel[]
+  bans        ServerBan[]
 
   @@index([ownerId])
   @@map("servers")
+}
+
+/// A banned user cannot join again, by invite or through discovery.
+model ServerBan {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  serverId  String   @map("server_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  bannedBy  String   @map("banned_by") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  server    Server   @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([serverId, userId])
+  @@map("server_bans")
 }
 
 enum ServerVisibility {
@@ -125,6 +145,7 @@ model ServerMember {
   server   Server       @relation(fields: [serverId], references: [id], onDelete: Cascade)
   user     User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   roles    MemberRole[]
+  channelPermissions ChannelMemberPermission[]
 
   @@unique([serverId, userId])
   @@index([serverId])
@@ -144,6 +165,7 @@ model Role {
   createdAt   DateTime     @default(now()) @map("created_at") @db.Timestamptz
   server      Server       @relation(fields: [serverId], references: [id], onDelete: Cascade)
   members     MemberRole[]
+  channelPermissions ChannelRolePermission[]
 
   @@index([serverId])
   @@map("roles")
@@ -192,9 +214,96 @@ model Channel {
   position  Int         @default(0)
   createdAt DateTime    @default(now()) @map("created_at") @db.Timestamptz
   server    Server      @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  rolePermissions   ChannelRolePermission[]
+  memberPermissions ChannelMemberPermission[]
+  keyEpochs         ChannelKeyEpoch[]
 
   @@index([serverId])
   @@map("channels")
+}
+
+/// Channel overwrite for a role (@everyone included): deny bits are cleared, then allow bits set.
+/// A private channel is just @everyone denied VIEW_CHANNELS.
+model ChannelRolePermission {
+  channelId String  @map("channel_id") @db.Uuid
+  roleId    String  @map("role_id") @db.Uuid
+  allow     BigInt  @default(0)
+  deny      BigInt  @default(0)
+  channel   Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  role      Role    @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([channelId, roleId])
+  @@index([roleId])
+  @@map("channel_role_permissions")
+}
+
+/// Channel overwrite for one member; applied after every role overwrite, so it wins.
+model ChannelMemberPermission {
+  channelId String       @map("channel_id") @db.Uuid
+  memberId  String       @map("member_id") @db.Uuid
+  allow     BigInt       @default(0)
+  deny      BigInt       @default(0)
+  channel   Channel      @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  member    ServerMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@id([channelId, memberId])
+  @@index([memberId])
+  @@map("channel_member_permissions")
+}
+
+/// One symmetric key per channel epoch (arquitetura-lucaco.md 7.2). The key itself only exists
+/// in the browsers; the server stores it wrapped for each member (channel_key_shares).
+model ChannelKeyEpoch {
+  id        String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  channelId String            @map("channel_id") @db.Uuid
+  epoch     Int
+  createdBy String            @map("created_by") @db.Uuid
+  createdAt DateTime          @default(now()) @map("created_at") @db.Timestamptz
+  channel   Channel           @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  shares    ChannelKeyShare[]
+
+  @@unique([channelId, epoch])
+  @@map("channel_key_epochs")
+}
+
+/// The epoch key encrypted for one recipient with ECDH(wrapper private, recipient public).
+/// wrapperPublicKey is the SPKI the wrapper used, so a later key rotation does not orphan it.
+model ChannelKeyShare {
+  epochId          String          @map("epoch_id") @db.Uuid
+  recipientId      String          @map("recipient_id") @db.Uuid
+  wrappedBy        String          @map("wrapped_by") @db.Uuid
+  wrapperPublicKey String          @map("wrapper_public_key")
+  encryptedKey     String          @map("encrypted_key")
+  iv               String
+  epoch            ChannelKeyEpoch @relation(fields: [epochId], references: [id], onDelete: Cascade)
+  recipient        User            @relation(fields: [recipientId], references: [id], onDelete: Cascade)
+
+  @@id([epochId, recipientId])
+  @@index([recipientId])
+  @@map("channel_key_shares")
+}
+
+enum MessageScope {
+  dm
+  channel
+
+  @@map("message_scope")
+}
+
+/// Encrypted attachment (voice messages today). The bytes are ciphertext; the key travels inside
+/// the E2E message. conversationId is the channel id or the derived DM id, hence no FK.
+model MediaFile {
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  uploaderId     String       @map("uploader_id") @db.Uuid
+  scope          MessageScope
+  conversationId String       @map("conversation_id") @db.Uuid
+  storageKey     String       @map("storage_key")
+  sizeBytes      Int          @map("size_bytes")
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz
+  uploader       User         @relation(fields: [uploaderId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@map("media_files")
 }
 
 enum FriendshipStatus {

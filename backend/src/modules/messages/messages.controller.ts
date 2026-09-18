@@ -2,20 +2,49 @@ import type { Request, Response } from "express";
 import type { Server, Socket } from "socket.io";
 import { SOCKET_EVENTS } from "../../lib/constants.js";
 import { userRoom } from "../../lib/socket.js";
-import { historySchema, peerSchema, sendMessageSchema } from "./messages.schema.js";
+import {
+  addSharesSchema,
+  channelHistorySchema,
+  channelParamsSchema,
+  createEpochSchema,
+  epochParamsSchema,
+  historySchema,
+  peerSchema,
+  sendChannelMessageSchema,
+  sendMessageSchema,
+} from "./messages.schema.js";
 import * as messagesService from "./messages.services.js";
 
-/** GET /messages?peerId=&before=&limit= — the page of older messages the socket does not carry. */
+/**
+ * GET /messages?peerId=&before=&limit= (DM) or ?channelId=... (server channel) — the page of
+ * older messages the socket does not carry.
+ */
 export async function history(req: Request, res: Response) {
-  res.json(await messagesService.history(req.auth!.sub, historySchema.parse(req.query)));
+  const userId = req.auth!.sub;
+  res.json(
+    "channelId" in req.query
+      ? await messagesService.channelHistory(userId, channelHistorySchema.parse(req.query))
+      : await messagesService.history(userId, historySchema.parse(req.query)),
+  );
 }
 
 export async function conversations(req: Request, res: Response) {
   res.json(await messagesService.conversations(req.auth!.sub));
 }
 
-/** Socket handler: the ack carries the stored message, both sides get `message:new`. */
+/**
+ * Socket handler: the ack carries the stored message. A DM goes to both sides, a channel message
+ * to every member who can read the channel.
+ */
 export async function send(io: Server, socket: Socket, payload: unknown) {
+  if (payload && typeof payload === "object" && "channelId" in payload) {
+    const { message, recipients } = await messagesService.sendToChannel(
+      socket.data.userId,
+      sendChannelMessageSchema.parse(payload),
+    );
+    io.to(recipients.map(userRoom)).emit(SOCKET_EVENTS.messageNew, message);
+    return message;
+  }
   const input = sendMessageSchema.parse(payload);
   const message = await messagesService.send(socket.data.userId, input);
   io.to(userRoom(input.peerId)).to(userRoom(socket.data.userId)).emit(SOCKET_EVENTS.messageNew, message);
@@ -35,4 +64,20 @@ export async function typing(io: Server, socket: Socket, payload: unknown) {
   await messagesService.typing(socket.data.userId, peerId);
   io.to(userRoom(peerId)).emit(SOCKET_EVENTS.messageTyping, { userId: socket.data.userId });
   return {};
+}
+
+export async function channelKeys(req: Request, res: Response) {
+  const { channelId } = channelParamsSchema.parse(req.params);
+  res.json(await messagesService.channelKeys(channelId, req.auth!.sub));
+}
+
+export async function createEpoch(req: Request, res: Response) {
+  const { channelId } = channelParamsSchema.parse(req.params);
+  res.status(201).json(await messagesService.createEpoch(channelId, req.auth!.sub, createEpochSchema.parse(req.body)));
+}
+
+export async function addShares(req: Request, res: Response) {
+  const { channelId, epoch } = epochParamsSchema.parse(req.params);
+  await messagesService.addShares(channelId, epoch, req.auth!.sub, addSharesSchema.parse(req.body));
+  res.status(204).end();
 }

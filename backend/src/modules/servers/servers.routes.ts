@@ -21,9 +21,12 @@ serversRouter.delete("/:serverId", serversController.remove);
 serversRouter.put("/:serverId/icon", imageUpload("icon"), serversController.updateIcon);
 serversRouter.put("/:serverId/banner", imageUpload("banner"), serversController.updateBanner);
 serversRouter.get("/:serverId/members", serversController.listMembers);
+serversRouter.get("/:serverId/permissions", serversController.myPermissions);
 serversRouter.post("/:serverId/members", serversController.join);
 serversRouter.post("/:serverId/invites", serversController.createInvite);
 serversRouter.delete("/:serverId/members/me", serversController.leave);
+serversRouter.delete("/:serverId/members/:userId", serversController.kick);
+serversRouter.put("/:serverId/bans/:userId", serversController.ban);
 
 // Roles and channels always live under a server: /servers/:serverId/...
 serversRouter.use("/:serverId/roles", rolesRouter);

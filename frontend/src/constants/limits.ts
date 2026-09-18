@@ -7,6 +7,9 @@ export const LIMITS = {
   serverName: { min: 2, max: 100 },
   serverDescription: { max: 300 },
   channelName: { max: 100 },
+  channelTopic: { max: 1024 },
+  /** Voice messages: the recorder stops by itself at this length. The API caps files at 5 MB. */
+  voiceMessageMs: 2 * 60 * 1000,
   friendRequestMessage: { max: 120 },
   /** Plaintext cap: the ciphertext (base64 + GCM tag) must fit the API's 8 KiB limit. */
   messageText: { max: 2000 },

@@ -6,6 +6,7 @@ const mock = () => jest.fn<(...args: any[]) => any>();
 
 const role = { findMany: mock(), findUnique: mock(), create: mock(), update: mock(), delete: mock() };
 const serverMember = { findUnique: mock() };
+const getById = mock();
 const memberRole = { upsert: mock(), deleteMany: mock() };
 
 const requirePermission = jest.fn<(s: string, u: string, p: string) => Promise<bigint>>();
@@ -15,6 +16,7 @@ jest.unstable_mockModule("../../lib/prisma.js", () => ({ prisma: { role, serverM
 jest.unstable_mockModule("../servers/servers.services.js", () => ({
   requirePermission,
   has,
+  getById,
   getMember: jest.fn(async () => ({ id: "m1" })),
 }));
 
@@ -157,5 +159,69 @@ describe("assign", () => {
 
     await expect(roles.assign(SERVER, ROLE, MEMBER, USER)).rejects.toMatchObject({ status: 403 });
     expect(memberRole.upsert).not.toHaveBeenCalled();
+  });
+});
+
+describe("setAdmin", () => {
+  const OWNER = USER;
+  const OTHER = "66666666-6666-6666-6666-666666666666";
+  const adminRole = roleRow({ id: "admin-role", name: "Admin", permissions: PERMISSIONS.ADMINISTRATOR });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    getById.mockResolvedValue({ id: SERVER, ownerId: OWNER });
+    serverMember.findUnique.mockResolvedValue({ id: MEMBER, serverId: SERVER, userId: OTHER });
+    // The real has(): an ADMINISTRATOR role is recognised by its bit.
+    has.mockImplementation((p, name) => (p & PERMISSIONS[name]) !== 0n);
+  });
+
+  it("creates the Admin role on first use and gives it to the member", async () => {
+    role.findMany.mockResolvedValue([roleRow()]);
+    role.create.mockResolvedValue(adminRole);
+
+    await roles.setAdmin(SERVER, MEMBER, OWNER, true);
+
+    expect(role.create).toHaveBeenCalledWith({
+      data: { serverId: SERVER, name: "Admin", permissions: PERMISSIONS.ADMINISTRATOR },
+    });
+    expect(memberRole.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ create: { memberId: MEMBER, roleId: "admin-role" } }),
+    );
+  });
+
+  it("reuses the existing Admin role", async () => {
+    role.findMany.mockResolvedValue([adminRole]);
+
+    await roles.setAdmin(SERVER, MEMBER, OWNER, true);
+
+    expect(role.create).not.toHaveBeenCalled();
+    expect(memberRole.upsert).toHaveBeenCalled();
+  });
+
+  it("revoking drops every ADMINISTRATOR role the member holds, and only those", async () => {
+    role.findMany.mockResolvedValue([adminRole, roleRow({ id: "boss", permissions: PERMISSIONS.ADMINISTRATOR }), roleRow()]);
+
+    await roles.setAdmin(SERVER, MEMBER, OWNER, false);
+
+    expect(memberRole.deleteMany).toHaveBeenCalledWith({
+      where: { memberId: MEMBER, roleId: { in: ["admin-role", "boss"] } },
+    });
+  });
+
+  it("lets only the owner make admins, even another admin cannot", async () => {
+    await expect(roles.setAdmin(SERVER, MEMBER, OTHER, true)).rejects.toMatchObject({ status: 403 });
+    expect(memberRole.upsert).not.toHaveBeenCalled();
+  });
+
+  it("409s on the owner, who is always an administrator", async () => {
+    serverMember.findUnique.mockResolvedValue({ id: MEMBER, serverId: SERVER, userId: OWNER });
+
+    await expect(roles.setAdmin(SERVER, MEMBER, OWNER, false)).rejects.toMatchObject({ status: 409 });
+  });
+
+  it("404s a member of another server", async () => {
+    serverMember.findUnique.mockResolvedValue({ id: MEMBER, serverId: "other", userId: OTHER });
+
+    await expect(roles.setAdmin(SERVER, MEMBER, OWNER, true)).rejects.toMatchObject({ status: 404 });
   });
 });

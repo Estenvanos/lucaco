@@ -9,19 +9,23 @@ const serverMember = { create: mock(), findUnique: mock(), findMany: mock(), del
 const role = { create: mock(), findFirst: mock() };
 const invite = { create: mock(), findUnique: mock(), updateMany: mock() };
 const channel = { createMany: mock() };
+const serverBan = { findUnique: mock(), upsert: mock() };
 const prisma = {
   server,
   serverMember,
   role,
   invite,
+  serverBan,
   $transaction: jest.fn(async (fn: (tx: unknown) => unknown) =>
-    fn({ server, serverMember, role, invite, channel }),
+    fn({ server, serverMember, role, invite, channel, serverBan }),
   ),
 };
+const emitToUser = mock();
 
 jest.unstable_mockModule("../../lib/prisma.js", () => ({ prisma }));
 jest.unstable_mockModule("../../lib/storage.js", () => ({ signedGetUrl: jest.fn(async (k: string) => `signed:${k}`) }));
 jest.unstable_mockModule("../images/images.services.js", () => ({ store: mock(), remove: mock() }));
+jest.unstable_mockModule("../../lib/socket.js", () => ({ emitToUser }));
 
 const imagesService = await import("../images/images.services.js");
 const servers = await import("./servers.services.js");
@@ -114,11 +118,33 @@ describe("listMembers", () => {
         },
       },
     ]);
+    server.findUnique.mockResolvedValue(serverRow);
 
     const [member] = await servers.listMembers(SERVER);
 
     expect(member).toMatchObject({ userId: MEMBER, status: "dnd", avatarUrl: "signed:images/avatars/a.webp" });
     expect(JSON.stringify(member)).not.toMatch(/argon2id|example\.com/);
+  });
+
+  it("flags the owner and holders of an ADMINISTRATOR role as admins", async () => {
+    const user = { username: "u", displayName: null, avatarUrl: null, status: "online" };
+    serverMember.findMany.mockResolvedValue([
+      { id: "m0", userId: OWNER, nickname: null, joinedAt: new Date(), roles: [], user },
+      {
+        id: "m1",
+        userId: MEMBER,
+        nickname: null,
+        joinedAt: new Date(),
+        roles: [{ roleId: "r1", role: { permissions: PERMISSIONS.ADMINISTRATOR } }],
+        user,
+      },
+      { id: "m2", userId: "x", nickname: null, joinedAt: new Date(), roles: [{ roleId: "r2", role: { permissions: PERMISSIONS.KICK_MEMBERS } }], user },
+    ]);
+    server.findUnique.mockResolvedValue(serverRow);
+
+    const members = await servers.listMembers(SERVER);
+
+    expect(members.map((m) => m.isAdmin)).toEqual([true, true, false]);
   });
 });
 
@@ -139,6 +165,18 @@ describe("join", () => {
     await expect(servers.join(SERVER, MEMBER)).rejects.toMatchObject({
       status: 403,
       message: "Invite required for private server",
+    });
+    expect(serverMember.create).not.toHaveBeenCalled();
+  });
+
+  it("refuses a banned user with 403", async () => {
+    server.findUnique.mockResolvedValue(serverRow);
+    serverMember.findUnique.mockResolvedValue(null);
+    serverBan.findUnique.mockResolvedValueOnce({ id: "b1" });
+
+    await expect(servers.join(SERVER, MEMBER)).rejects.toMatchObject({
+      status: 403,
+      message: "You are banned from this server",
     });
     expect(serverMember.create).not.toHaveBeenCalled();
   });
@@ -165,6 +203,7 @@ describe("invites", () => {
 
   it("lets the owner create an invite", async () => {
     server.findUnique.mockResolvedValue(serverRow);
+    serverMember.findUnique.mockResolvedValue({ id: "m0", roles: [] });
     invite.create.mockImplementation(({ data }: { data: object }) => ({ ...inviteRow, ...data }));
 
     const result = await servers.createInvite(SERVER, OWNER, { maxUses: 3, expiresAt: null });
@@ -173,6 +212,16 @@ describe("invites", () => {
     expect(invite.create).toHaveBeenCalledWith({
       data: expect.objectContaining({ serverId: SERVER, createdBy: OWNER, maxUses: 3 }),
     });
+  });
+
+  it("refuses a banned user even with a valid invite, without spending a use", async () => {
+    invite.findUnique.mockResolvedValue(inviteRow);
+    serverMember.findUnique.mockResolvedValue(null);
+    serverBan.findUnique.mockResolvedValueOnce({ id: "b1" });
+
+    await expect(servers.acceptInvite(inviteRow.code, MEMBER)).rejects.toMatchObject({ status: 403 });
+    expect(invite.updateMany).not.toHaveBeenCalled();
+    expect(serverMember.create).not.toHaveBeenCalled();
   });
 
   it("accepts a valid invite and consumes one use atomically", async () => {
@@ -214,18 +263,24 @@ describe("invites", () => {
 });
 
 describe("permissionsFor", () => {
-  it("makes the owner an administrator without reading roles", async () => {
+  it("makes the owner an administrator whatever roles they hold", async () => {
     server.findUnique.mockResolvedValue(serverRow);
+    serverMember.findUnique.mockResolvedValue({ id: "m0", roles: [] });
+    role.findFirst.mockResolvedValue({ id: "everyone", permissions: 0n });
 
-    await expect(servers.permissionsFor(SERVER, OWNER)).resolves.toBe(PERMISSIONS.ADMINISTRATOR);
-    expect(role.findFirst).not.toHaveBeenCalled();
+    const permissions = await servers.permissionsFor(SERVER, OWNER);
+
+    expect(servers.has(permissions, "MANAGE_SERVER")).toBe(true);
   });
 
   it("ORs @everyone with every role the member holds", async () => {
     server.findUnique.mockResolvedValue(serverRow);
     serverMember.findUnique.mockResolvedValue({
       id: "m1",
-      roles: [{ role: { permissions: PERMISSIONS.MANAGE_ROLES } }, { role: { permissions: PERMISSIONS.KICK_MEMBERS } }],
+      roles: [
+        { roleId: "r1", role: { permissions: PERMISSIONS.MANAGE_ROLES } },
+        { roleId: "r2", role: { permissions: PERMISSIONS.KICK_MEMBERS } },
+      ],
     });
     role.findFirst.mockResolvedValue({ permissions: DEFAULT_PERMISSIONS });
 
@@ -242,6 +297,21 @@ describe("permissionsFor", () => {
     serverMember.findUnique.mockResolvedValue(null);
 
     await expect(servers.permissionsFor(SERVER, MEMBER)).rejects.toMatchObject({ status: 403 });
+  });
+});
+
+describe("memberPermissions", () => {
+  it("returns what channel overwrites need: member, role ids and @everyone", async () => {
+    server.findUnique.mockResolvedValue(serverRow);
+    serverMember.findUnique.mockResolvedValue({ id: "m1", roles: [{ roleId: "r1", role: { permissions: 0n } }] });
+    role.findFirst.mockResolvedValue({ id: "everyone", permissions: DEFAULT_PERMISSIONS });
+
+    await expect(servers.memberPermissions(SERVER, MEMBER)).resolves.toEqual({
+      permissions: DEFAULT_PERMISSIONS,
+      memberId: "m1",
+      roleIds: ["r1"],
+      everyoneRoleId: "everyone",
+    });
   });
 });
 
@@ -424,5 +494,86 @@ describe("toPublicServer banner", () => {
       servers.toPublicServer({ ...serverRow, bannerUrl: "images/banners/b.webp" }),
     ).resolves.toMatchObject({ bannerUrl: "signed:images/banners/b.webp" });
     await expect(servers.toPublicServer(serverRow)).resolves.toMatchObject({ bannerUrl: null });
+  });
+});
+
+describe("kick and ban", () => {
+  const TARGET = "44444444-4444-4444-4444-444444444444";
+  const actorWith = (permissions: bigint) => ({ id: "a1", roles: [{ roleId: "r", role: { permissions } }] });
+  const target = (permissions = 0n) => ({ id: "t1", userId: TARGET, roles: [{ roleId: "r", role: { permissions } }] });
+
+  beforeEach(() => serverMember.findUnique.mockReset());
+
+  /** First findUnique is the actor (permission check), the second the target. */
+  const setup = (actor: unknown, targetMember: unknown) => {
+    server.findUnique.mockResolvedValue(serverRow);
+    role.findFirst.mockResolvedValue({ id: "everyone", permissions: DEFAULT_PERMISSIONS });
+    serverMember.findUnique.mockResolvedValueOnce(actor).mockResolvedValueOnce(targetMember);
+  };
+
+  it("lets a moderator kick a member, who is told live and can come back", async () => {
+    setup(actorWith(PERMISSIONS.KICK_MEMBERS), target());
+
+    await servers.kick(SERVER, TARGET, MEMBER);
+
+    expect(serverMember.delete).toHaveBeenCalledWith({ where: { id: "t1" } });
+    expect(serverBan.upsert).not.toHaveBeenCalled();
+    expect(emitToUser).toHaveBeenCalledWith(TARGET, "server:removed", { serverId: SERVER });
+  });
+
+  it("403s a kick without KICK_MEMBERS", async () => {
+    setup(actorWith(0n), target());
+
+    await expect(servers.kick(SERVER, TARGET, MEMBER)).rejects.toMatchObject({ status: 403 });
+    expect(serverMember.delete).not.toHaveBeenCalled();
+  });
+
+  it("never removes the owner", async () => {
+    setup(actorWith(PERMISSIONS.ADMINISTRATOR), null);
+    await expect(servers.kick(SERVER, OWNER, MEMBER)).rejects.toMatchObject({ status: 403 });
+
+    serverMember.findUnique.mockReset();
+    setup(actorWith(PERMISSIONS.ADMINISTRATOR), null);
+    await expect(servers.ban(SERVER, OWNER, MEMBER)).rejects.toMatchObject({ status: 403 });
+    expect(serverMember.delete).not.toHaveBeenCalled();
+  });
+
+  it("lets only the owner remove an administrator", async () => {
+    setup(actorWith(PERMISSIONS.ADMINISTRATOR), target(PERMISSIONS.ADMINISTRATOR));
+    await expect(servers.kick(SERVER, TARGET, MEMBER)).rejects.toMatchObject({ status: 403 });
+    expect(serverMember.delete).not.toHaveBeenCalled();
+
+    setup({ id: "m0", roles: [] }, target(PERMISSIONS.ADMINISTRATOR));
+    await servers.kick(SERVER, TARGET, OWNER);
+    expect(serverMember.delete).toHaveBeenCalledWith({ where: { id: "t1" } });
+  });
+
+  it("409s removing yourself (that is leave)", async () => {
+    await expect(servers.kick(SERVER, MEMBER, MEMBER)).rejects.toMatchObject({ status: 409 });
+  });
+
+  it("404s a target that is not a member", async () => {
+    setup(actorWith(PERMISSIONS.KICK_MEMBERS), null);
+
+    await expect(servers.kick(SERVER, TARGET, MEMBER)).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("bans: removes the member and records the ban", async () => {
+    setup(actorWith(PERMISSIONS.BAN_MEMBERS), target());
+
+    await servers.ban(SERVER, TARGET, MEMBER);
+
+    expect(serverMember.delete).toHaveBeenCalledWith({ where: { id: "t1" } });
+    expect(serverBan.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ create: { serverId: SERVER, userId: TARGET, bannedBy: MEMBER } }),
+    );
+    expect(emitToUser).toHaveBeenCalledWith(TARGET, "server:removed", { serverId: SERVER });
+  });
+
+  it("403s a ban with only KICK_MEMBERS", async () => {
+    setup(actorWith(PERMISSIONS.KICK_MEMBERS), target());
+
+    await expect(servers.ban(SERVER, TARGET, MEMBER)).rejects.toMatchObject({ status: 403 });
+    expect(serverBan.upsert).not.toHaveBeenCalled();
   });
 });

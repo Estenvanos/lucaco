@@ -26,8 +26,12 @@ async function toPublic(notifications: Notification[]) {
   }));
 }
 
-/** Stores the notification and pushes it to the receiver's open tabs. */
+/**
+ * Stores the notification and pushes it to the receiver's open tabs. Dropped when the receiver
+ * muted the owner: every notice goes through here, so that covers DMs and friend requests.
+ */
 export async function notify(input: NewNotification) {
+  if (await usersService.isMuted(input.receiverId, input.ownerId)) return null;
   const notification = await prisma.notification.create({ data: input });
   const [payload] = await toPublic([notification]);
   emitToUser(input.receiverId, SOCKET_EVENTS.notificationNew, payload);

@@ -12,7 +12,7 @@ export type MessageDoc = {
   scope: "dm" | "channel";
   senderId: string;
   clientMessageId: string;
-  contentType: "text";
+  contentType: "text" | "audio";
   ciphertext: string; // base64, AES-GCM
   iv: string; // base64, random per message
   keyEpoch: number | null; // which sender key decrypts it; null for DMs

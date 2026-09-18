@@ -14,6 +14,11 @@ export const assignParamsSchema = z.object({
   memberId: z.string().uuid(),
 });
 
+export const adminParamsSchema = z.object({
+  serverId: z.string().uuid(),
+  memberId: z.string().uuid(),
+});
+
 /** Permissions travel as names, never as a raw bitfield: the client cannot invent bits. */
 export const createRoleSchema = z.object({
   name: z.string().trim().min(1).max(64),

@@ -14,9 +14,18 @@ jest.unstable_mockModule("../../lib/mongo.js", () => ({ messages }));
 jest.unstable_mockModule("../friends/friends.services.js", () => ({ areFriends, canonicalPair, list }));
 const notifications = { notifyOnce: mock(), dismissFrom: mock() };
 jest.unstable_mockModule("../notifications/notifications.services.js", () => notifications);
+const getActiveKey = mock();
+const getActiveKeys = mock();
 jest.unstable_mockModule("../users/users.services.js", () => ({
   getById: jest.fn(async (id: string) => ({ id, username: "alice", displayName: null })),
+  getActiveKey,
+  getActiveKeys,
 }));
+const channelsService = { canView: mock(), canSend: mock(), canSendVoice: mock(), viewerIds: mock() };
+jest.unstable_mockModule("../channels/channels.services.js", () => channelsService);
+const channelKeyEpoch = { findFirst: mock(), create: mock() };
+const channelKeyShare = { findMany: mock(), findUnique: mock(), createMany: mock() };
+jest.unstable_mockModule("../../lib/prisma.js", () => ({ prisma: { channelKeyEpoch, channelKeyShare } }));
 
 const service = await import("./messages.services.js");
 
@@ -64,7 +73,13 @@ const duplicateKey = () => {
 };
 
 beforeEach(() => {
+  jest.clearAllMocks();
   areFriends.mockResolvedValue(true);
+  channelsService.canView.mockResolvedValue({});
+  channelsService.canSend.mockResolvedValue({});
+  channelsService.canSendVoice.mockResolvedValue({});
+  channelsService.viewerIds.mockResolvedValue([ALICE, BOB]);
+  getActiveKey.mockResolvedValue({ publicKey: "YWxpY2U=" });
 });
 
 describe("dmId", () => {
@@ -220,5 +235,138 @@ describe("typing", () => {
   it("is refused between users who are not friends", async () => {
     areFriends.mockResolvedValue(false);
     await expect(service.typing(ALICE, CAROL)).rejects.toMatchObject({ status: 403 });
+  });
+});
+
+describe("messages in a server channel", () => {
+  const CHANNEL = "55555555-5555-5555-5555-555555555555";
+  const channelInput = { ...input, peerId: undefined, channelId: CHANNEL, keyEpoch: 2 };
+
+  it("stores the epoch with the ciphertext and pushes only to current viewers", async () => {
+    channelKeyEpoch.findFirst.mockResolvedValue({ id: "e2", epoch: 2 });
+    messages.insertOne.mockResolvedValue({});
+
+    const { message, recipients } = await service.sendToChannel(ALICE, channelInput);
+
+    expect(message).toMatchObject({ channelId: CHANNEL, scope: "channel", keyEpoch: 2 });
+    expect(recipients).toEqual([ALICE, BOB]);
+    expect(notifications.notifyOnce).not.toHaveBeenCalled();
+  });
+
+  it("refuses a member without SEND_MESSAGES", async () => {
+    channelsService.canSend.mockRejectedValue(Object.assign(new Error("x"), { status: 403 }));
+
+    await expect(service.sendToChannel(ALICE, channelInput)).rejects.toMatchObject({ status: 403 });
+    expect(messages.insertOne).not.toHaveBeenCalled();
+  });
+
+  it("checks SEND_VOICE_MESSAGES for audio", async () => {
+    channelsService.canSendVoice.mockRejectedValue(Object.assign(new Error("x"), { status: 403 }));
+
+    await expect(
+      service.sendToChannel(ALICE, { ...channelInput, contentType: "audio" }),
+    ).rejects.toMatchObject({ status: 403 });
+    expect(messages.insertOne).not.toHaveBeenCalled();
+  });
+
+  it("refuses a message encrypted with an old epoch (409)", async () => {
+    channelKeyEpoch.findFirst.mockResolvedValue({ id: "e3", epoch: 3 });
+
+    await expect(service.sendToChannel(ALICE, channelInput)).rejects.toMatchObject({ status: 409 });
+    expect(messages.insertOne).not.toHaveBeenCalled();
+  });
+
+  it("reads history only for someone who can view the channel", async () => {
+    channelsService.canView.mockRejectedValue(Object.assign(new Error("x"), { status: 403 }));
+
+    await expect(service.channelHistory(ALICE, { channelId: CHANNEL, limit: 30 })).rejects.toMatchObject({
+      status: 403,
+    });
+    expect(messages.find).not.toHaveBeenCalled();
+  });
+});
+
+describe("channel keys", () => {
+  const CHANNEL = "55555555-5555-5555-5555-555555555555";
+  const share = (recipientId: string) => ({ recipientId, encryptedKey: "a2V5", iv: "aXZpdml2aXY=" });
+
+  it("returns the caller's shares, who lacks the key, and asks to rotate after someone left", async () => {
+    channelKeyShare.findMany.mockResolvedValue([
+      { epoch: { epoch: 1 }, encryptedKey: "k1", iv: "i1", wrapperPublicKey: "p" },
+    ]);
+    channelKeyEpoch.findFirst.mockResolvedValue({ epoch: 1, shares: [{ recipientId: ALICE }, { recipientId: CAROL }] });
+    getActiveKeys.mockResolvedValue([
+      { userId: ALICE, publicKey: "a" },
+      { userId: BOB, publicKey: "b" },
+    ]);
+
+    const keys = await service.channelKeys(CHANNEL, ALICE);
+
+    expect(keys.latest).toBe(1);
+    expect(keys.shares).toEqual([{ epoch: 1, encryptedKey: "k1", iv: "i1", wrapperPublicKey: "p" }]);
+    expect(keys.recipients).toEqual([
+      { userId: ALICE, publicKey: "a", hasShare: true },
+      { userId: BOB, publicKey: "b", hasShare: false },
+    ]);
+    expect(keys.rotate).toBe(true); // CAROL holds the key but is no longer a viewer
+  });
+
+  it("creates the next epoch with the wrapper key taken from the directory", async () => {
+    channelKeyEpoch.findFirst.mockResolvedValue({ id: "e1", epoch: 1 });
+
+    await service.createEpoch(CHANNEL, ALICE, { epoch: 2, shares: [share(ALICE), share(BOB)] });
+
+    expect(channelKeyEpoch.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        channelId: CHANNEL,
+        epoch: 2,
+        shares: {
+          create: [
+            expect.objectContaining({ recipientId: ALICE, wrappedBy: ALICE, wrapperPublicKey: "YWxpY2U=" }),
+            expect.objectContaining({ recipientId: BOB, wrappedBy: ALICE, wrapperPublicKey: "YWxpY2U=" }),
+          ],
+        },
+      }),
+    });
+  });
+
+  it("refuses to skip or repeat an epoch (409)", async () => {
+    channelKeyEpoch.findFirst.mockResolvedValue({ id: "e1", epoch: 1 });
+
+    await expect(service.createEpoch(CHANNEL, ALICE, { epoch: 1, shares: [share(ALICE)] })).rejects.toMatchObject({
+      status: 409,
+    });
+    expect(channelKeyEpoch.create).not.toHaveBeenCalled();
+  });
+
+  it("never wraps the key for someone who cannot view the channel", async () => {
+    channelKeyEpoch.findFirst.mockResolvedValue(null);
+
+    await expect(
+      service.createEpoch(CHANNEL, ALICE, { epoch: 1, shares: [share(ALICE), share(CAROL)] }),
+    ).rejects.toMatchObject({ status: 403 });
+    expect(channelKeyEpoch.create).not.toHaveBeenCalled();
+  });
+
+  it("only lets a holder of the current key hand it out", async () => {
+    channelKeyEpoch.findFirst.mockResolvedValue({ id: "e1", epoch: 1 });
+    channelKeyShare.findUnique.mockResolvedValue(null);
+
+    await expect(service.addShares(CHANNEL, 1, BOB, { shares: [share(ALICE)] })).rejects.toMatchObject({
+      status: 403,
+    });
+    expect(channelKeyShare.createMany).not.toHaveBeenCalled();
+  });
+
+  it("adds shares for viewers who lack the current key", async () => {
+    channelKeyEpoch.findFirst.mockResolvedValue({ id: "e1", epoch: 1 });
+    channelKeyShare.findUnique.mockResolvedValue({ recipientId: ALICE });
+
+    await service.addShares(CHANNEL, 1, ALICE, { shares: [share(BOB)] });
+
+    expect(channelKeyShare.createMany).toHaveBeenCalledWith({
+      data: [expect.objectContaining({ epochId: "e1", recipientId: BOB, wrappedBy: ALICE })],
+      skipDuplicates: true,
+    });
   });
 });
