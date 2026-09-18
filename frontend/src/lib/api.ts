@@ -49,9 +49,17 @@ export async function refreshAccessToken() {
 
 let refreshing: Promise<string> | null = null;
 
-/** One refresh at a time: concurrent 401s wait on the same call instead of rotating the token twice. */
-function refreshOnce() {
-  refreshing ??= refreshAccessToken().finally(() => (refreshing = null));
+/**
+ * One refresh at a time. Presenting a rotated refresh token again is treated by the API as theft
+ * and revokes every session, so two refreshes racing on the same cookie log the user out
+ * everywhere. Concurrent 401s in this tab share one call; the Web Lock serializes it with other
+ * tabs (the cookie is shared), so the next tab only refreshes after the new cookie is stored.
+ */
+export function refreshOnce() {
+  refreshing ??= navigator.locks
+    .request("lucaco:refresh", refreshAccessToken)
+    .then((token) => token) // lib.dom types the result as Promise<Promise<string>>; flattens it
+    .finally(() => (refreshing = null));
   return refreshing;
 }
 
