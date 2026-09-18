@@ -123,7 +123,7 @@ Se aparecer um caso que nenhuma linha acima cobre, o caso vira discussão de arq
 
 ```
 frontend/src/
-  main.tsx                     React root + QueryClientProvider + RouterProvider
+  main.tsx                     React root + QueryClientProvider + AuthProvider + RouterProvider
   routes.tsx                   árvore de rotas: layout -> pages
   lib/
     api.ts                     httpClient: baseURL, JSON, Authorization: Bearer,
@@ -140,10 +140,12 @@ frontend/src/
   services/<modulo>/
     <modulo>.keys.ts           key factory: as() / list() / detail(id)
     <modulo>.api.ts            funções de request + hooks useQuery/useMutation
-  hooks/                       estado de página e de UI; sem fetch, sem JSX
+  contexts/<modulo>.context.ts createContext do módulo (ex.: AuthContext)
+  providers/<Modulo>Provider.tsx preenche o contexto (AuthProvider: sessão via useMe)
+  hooks/                       estado de página e de UI; sem fetch, sem JSX; useAuth() lê o AuthContext
   pages/<modulo>/<Nome>Page.tsx   só composição: hooks + componentes
   layouts/
-    RootLayout.tsx             app autenticado: guarda de sessão, shell (sidebar de servers,
+    RootLayout.tsx             app autenticado: guarda de sessão via useAuth(), shell (sidebar de servers,
                                lista de canais, header) e <Outlet/>
     AuthLayout.tsx             sign-in / sign-up: card centralizado, sem shell
   components/

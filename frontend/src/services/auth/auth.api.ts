@@ -1,4 +1,4 @@
-import { useMutation } from "@tanstack/react-query";
+import { hashKey, useMutation } from "@tanstack/react-query";
 import { ENDPOINTS } from "../../constants/endpoints";
 import { request, setAccessToken } from "../../lib/api";
 import { queryClient } from "../../lib/query-client";
@@ -31,6 +31,9 @@ export const useLogout = () =>
     // Runs on failure too: a logout that did not reach the API still has to clear the client.
     onSettled: () => {
       setAccessToken(null);
-      queryClient.clear();
+      // Not clear(): AuthProvider observes `me` and would keep the removed user. Empty it, drop the rest.
+      queryClient.setQueryData(usersKeys.me(), null);
+      const me = hashKey(usersKeys.me());
+      queryClient.removeQueries({ predicate: (query) => query.queryHash !== me });
     },
   });
