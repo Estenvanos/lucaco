@@ -8,23 +8,25 @@ datasource db {
 }
 
 model User {
-  id              String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  username        String         @unique @db.VarChar(32)
-  email           String         @unique @db.VarChar(255)
-  passwordHash    String         @map("password_hash")
-  displayName     String?        @map("display_name") @db.VarChar(64)
-  avatarUrl       String?        @map("avatar_url") // object storage key
-  createdAt       DateTime       @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt       DateTime       @updatedAt @map("updated_at") @db.Timestamptz
-  sessions        Session[]
-  keys            UserKey[]
-  ownedServers    Server[]
-  memberships     ServerMember[]
-  createdInvites  Invite[]
-  friendshipsLow  Friendship[]   @relation("friendshipLow")
-  friendshipsHigh Friendship[]   @relation("friendshipHigh")
-  friendRequests  Friendship[]   @relation("friendshipRequester")
-  friendBlocks    Friendship[]   @relation("friendshipBlocker")
+  id                String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  username          String         @unique @db.VarChar(32)
+  email             String         @unique @db.VarChar(255)
+  passwordHash      String         @map("password_hash")
+  displayName       String?        @map("display_name") @db.VarChar(64)
+  avatarUrl         String?        @map("avatar_url") // object storage key
+  createdAt         DateTime       @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime       @updatedAt @map("updated_at") @db.Timestamptz
+  sessions          Session[]
+  keys              UserKey[]
+  ownedServers      Server[]
+  memberships       ServerMember[]
+  createdInvites    Invite[]
+  friendshipsLow    Friendship[]   @relation("friendshipLow")
+  friendshipsHigh   Friendship[]   @relation("friendshipHigh")
+  friendRequests    Friendship[]   @relation("friendshipRequester")
+  friendBlocks      Friendship[]   @relation("friendshipBlocker")
+  notifications     Notification[] @relation("notificationReceiver")
+  notificationsSent Notification[] @relation("notificationOwner")
 
   @@map("users")
 }
@@ -197,4 +199,31 @@ model Friendship {
   @@index([userLowId, status])
   @@index([userHighId, status])
   @@map("friendships")
+}
+
+enum NotificationTag {
+  friend_request
+  friend_accepted
+  new_message
+
+  @@map("notification_tag")
+}
+
+/// What lands in a user's inbox, pushed live to the `user:<id>` socket room. For a friend
+/// request the friendships row stays the source of truth; the notification is only the
+/// message and is deleted once the request is answered, cancelled or blocked.
+model Notification {
+  id         String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tag        NotificationTag
+  title      String          @db.VarChar(120)
+  subtitle   String?         @db.VarChar(120)
+  /// Who caused it (the user who sent the request, accepted it, ...).
+  ownerId    String          @map("owner_id") @db.Uuid
+  receiverId String          @map("receiver_id") @db.Uuid
+  createdAt  DateTime        @default(now()) @map("created_at") @db.Timestamptz
+  owner      User            @relation("notificationOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  receiver   User            @relation("notificationReceiver", fields: [receiverId], references: [id], onDelete: Cascade)
+
+  @@index([receiverId, createdAt])
+  @@map("notifications")
 }

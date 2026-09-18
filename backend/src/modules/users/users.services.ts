@@ -23,6 +23,27 @@ export async function getById(id: string) {
   return user;
 }
 
+export async function getByUsername(username: string) {
+  const user = await prisma.user.findUnique({ where: { username } });
+  if (!user) throw new HttpError(404, "User not found");
+  return user;
+}
+
+/** What other users may see about someone: no email. Unknown ids are left out of the map. */
+export async function getProfiles(ids: string[]) {
+  const users = await prisma.user.findMany({ where: { id: { in: ids } } });
+  const profiles = await Promise.all(
+    users.map(async (user) => ({
+      id: user.id,
+      username: user.username,
+      displayName: user.displayName,
+      avatarUrl: user.avatarUrl ? await signedGetUrl(user.avatarUrl) : null,
+      createdAt: user.createdAt,
+    })),
+  );
+  return new Map(profiles.map((profile) => [profile.id, profile]));
+}
+
 export async function updateAvatar(userId: string, file: ImageFile) {
   const previous = await getById(userId);
   const key = await imagesService.store(file, "avatars", userId);

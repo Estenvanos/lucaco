@@ -60,6 +60,7 @@ export function ServerWheel({
               type="button"
               className="wheel-item"
               data-add={index === 0}
+              data-unread={server?.unread || undefined}
               data-active={slot.active || server?.id === activeServerId}
               style={{
                 translate: `${slot.x}px ${slot.y}px`,

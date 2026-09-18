@@ -1,12 +1,20 @@
 import type { Friendship } from "../../generated/prisma/client.js";
 import { HttpError } from "../../lib/http-error.js";
 import { prisma } from "../../lib/prisma.js";
+import { NOTIFICATION_TAGS } from "../../lib/constants.js";
+import * as notificationsService from "../notifications/notifications.services.js";
 import * as usersService from "../users/users.services.js";
-import type { ListFriendsInput } from "./friends.schema.js";
+import type { FriendRequestInput, ListFriendsInput } from "./friends.schema.js";
 
 /** The table stores one row per pair in canonical order, so both directions map to the same key. */
 export function canonicalPair(a: string, b: string) {
   return a < b ? { userLowId: a, userHighId: b } : { userLowId: b, userHighId: a };
+}
+
+/** How a user is named in the notifications they cause. */
+async function nameOf(userId: string) {
+  const user = await usersService.getById(userId);
+  return user.displayName ?? user.username;
 }
 
 const otherId = (friendship: Friendship, userId: string) =>
@@ -40,16 +48,20 @@ export async function list(userId: string, { status }: ListFriendsInput) {
     where: { status, OR: [{ userLowId: userId }, { userHighId: userId }] },
     orderBy: { createdAt: "desc" },
   });
-  return friendships.map((f) => toPublicFriendship(f, userId));
+  const others = friendships.map((f) => toPublicFriendship(f, userId));
+  // The other side's public profile (no email): the sidebar names friends and searches by it.
+  const profiles = await usersService.getProfiles(others.map((f) => f.userId));
+  return others.map((f) => ({ ...f, user: profiles.get(f.userId)! }));
 }
 
 /**
  * Sending a request to someone who already invited you accepts it instead of creating a
- * second row — the unique pair makes any other outcome an error anyway.
+ * second row — the unique pair makes any other outcome an error anyway. The invited side gets
+ * a friend_request notification with the optional note as its subtitle.
  */
-export async function request(userId: string, targetId: string) {
+export async function request(userId: string, { username, message }: FriendRequestInput) {
+  const { id: targetId } = await usersService.getByUsername(username);
   if (userId === targetId) throw new HttpError(409, "You cannot add yourself");
-  await usersService.getById(targetId);
 
   const existing = await find(userId, targetId);
   if (existing?.status === "blocked") throw new HttpError(403, "This user is blocked");
@@ -59,6 +71,15 @@ export async function request(userId: string, targetId: string) {
 
   const friendship = await prisma.friendship.create({
     data: { ...canonicalPair(userId, targetId), requestedBy: userId },
+  });
+  // ponytail: two writes, not one transaction — a failed notify leaves a pending request with no
+  // notification (still listed under GET /friends?status=pending); share a tx client if it matters.
+  await notificationsService.notify({
+    tag: NOTIFICATION_TAGS.friendRequest,
+    title: `${await nameOf(userId)} quer ser seu amigo`,
+    subtitle: message,
+    ownerId: userId,
+    receiverId: targetId,
   });
   return toPublicFriendship(friendship, userId);
 }
@@ -73,6 +94,13 @@ export async function accept(userId: string, targetId: string) {
     where: { id: existing.id },
     data: { status: "accepted", respondedAt: new Date() },
   });
+  await notificationsService.dismissFriendRequest(userId, targetId);
+  await notificationsService.notify({
+    tag: NOTIFICATION_TAGS.friendAccepted,
+    title: `${await nameOf(userId)} aceitou seu pedido de amizade`,
+    ownerId: userId,
+    receiverId: targetId,
+  });
   return toPublicFriendship(friendship, userId);
 }
 
@@ -84,6 +112,7 @@ export async function remove(userId: string, targetId: string) {
     throw new HttpError(403, "This user is blocked");
   }
   await prisma.friendship.delete({ where: { id: existing.id } });
+  await notificationsService.dismissFriendRequest(userId, targetId);
 }
 
 export async function block(userId: string, targetId: string) {
@@ -95,6 +124,7 @@ export async function block(userId: string, targetId: string) {
     create: { ...pair, requestedBy: userId, status: "blocked", blockedBy: userId },
     update: { status: "blocked", blockedBy: userId, respondedAt: new Date() },
   });
+  await notificationsService.dismissFriendRequest(userId, targetId);
   return toPublicFriendship(friendship, userId);
 }
 

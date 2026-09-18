@@ -22,11 +22,22 @@ export function on(io: Server, socket: Socket, event: string, handler: SocketHan
 /** Every socket joins a room named after its user, so modules can reach a user by id. */
 export const userRoom = (userId: string) => `user:${userId}`;
 
+let ioRef: Server | null = null;
+
+/**
+ * Pushes an event to every open tab of a user. Lets a service called from HTTP (a friend
+ * request) reach the other side live. A no-op before the socket server starts (tests, scripts).
+ */
+export function emitToUser(userId: string, event: string, payload: unknown) {
+  ioRef?.to(userRoom(userId)).emit(event, payload);
+}
+
 /**
  * Authentication, the per-user room and connection logging: what every socket module needs
  * before its own events. Module routers then add their handlers on their own `connection` listener.
  */
 export function initSocket(io: Server, requireSocketAuth: Parameters<Server["use"]>[0]) {
+  ioRef = io;
   io.use(requireSocketAuth);
   io.on("connection", (socket) => {
     socket.join(userRoom(socket.data.userId));
