@@ -1,14 +1,18 @@
 import type { SettingsSection } from "../types/users.types";
 
-/** Every app path lives here: no route string is written inline in a page or component. */
+/**
+ * Every app path lives here: no route string is written inline in a page or component.
+ * No path may start with an API prefix (/auth, /users, /servers, ...): the dev proxy and nginx
+ * send those to the API, so a reload there would get JSON instead of the app.
+ */
 export const ROUTES = {
   home: "/",
   /** Pattern for the router; `server(id)` builds the link. */
-  serverPattern: "/servers/:serverId",
-  server: (serverId: string) => `/servers/${serverId}`,
+  serverPattern: "/servidor/:serverId",
+  server: (serverId: string) => `/servidor/${serverId}`,
   /** A text channel; the bare server path opens its first text channel ("geral"). */
-  channelPattern: "/servers/:serverId/:channelId",
-  channel: (serverId: string, channelId: string) => `/servers/${serverId}/${channelId}`,
+  channelPattern: "/servidor/:serverId/:channelId",
+  channel: (serverId: string, channelId: string) => `/servidor/${serverId}/${channelId}`,
   /** Conversation with a friend; the page itself comes with the messages module. */
   conversationPattern: "/conversa/:userId",
   conversation: (userId: string) => `/conversa/${userId}`,

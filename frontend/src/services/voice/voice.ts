@@ -2,10 +2,11 @@ import { useSyncExternalStore } from "react";
 import { Call } from "../../call";
 import { SOCKET_EVENTS } from "../../constants/socket-events";
 import { holdSocket, socket } from "../../lib/socket";
-import type { PeerInfo, VoiceSnapshot, VoiceStream } from "../../types/voice.types";
+import type { PeerInfo, UserAudio, VoiceSnapshot, VoiceStream } from "../../types/voice.types";
 
 let snapshot: VoiceSnapshot = {
   channelId: null,
+  socketId: null,
   observedChannelId: null,
   peers: [],
   participants: [],
@@ -14,8 +15,12 @@ let snapshot: VoiceSnapshot = {
   muted: false,
   deafened: false,
   sharing: false,
+  watching: null,
+  preview: null,
+  speaking: [],
   status: null,
   error: null,
+  userAudio: {},
 };
 const listeners = new Set<() => void>();
 let releaseSocket: (() => void) | null = null;
@@ -25,8 +30,74 @@ function publish(change: Partial<VoiceSnapshot>) {
   for (const listener of listeners) listener();
 }
 
+// Speaking indicator: one AnalyserNode per microphone stream, sampled on a timer.
+// ponytail: fixed RMS threshold, no hysteresis — add a per-user sensitivity setting if it flickers.
+const SPEAKING_RMS = 0.02;
+const SPEAKING_POLL_MS = 150;
+let audio: AudioContext | null = null;
+let meterTimer: number | null = null;
+const samples = new Float32Array(512);
+const meters = new Map<string, { stream: MediaStream; source: MediaStreamAudioSourceNode; analyser: AnalyserNode }>();
+
+/** Stream keys are "local-mic" or "<socketId>:<streamId>"; the tile is per socket. */
+const speakerOf = (key: string) => (key === "local-mic" ? socket.id ?? key : key.split(":")[0]);
+
+function meter(key: string, stream: MediaStream | null) {
+  // Tab share streams carry audio too: only video-less streams are microphones. Checked on every
+  // call because a share's audio track can arrive before its video track.
+  const mic = stream?.getAudioTracks().length && !stream.getVideoTracks().length ? stream : null;
+  const current = meters.get(key);
+  if (current?.stream === mic) return;
+  current?.source.disconnect();
+  meters.delete(key);
+  if (!audio || !mic) return;
+  const source = audio.createMediaStreamSource(mic);
+  const analyser = audio.createAnalyser();
+  analyser.fftSize = samples.length;
+  source.connect(analyser);
+  meters.set(key, { stream: mic, source, analyser });
+}
+
+function sampleSpeaking() {
+  const speaking: string[] = [];
+  for (const [key, { analyser }] of meters) {
+    analyser.getFloatTimeDomainData(samples);
+    let sum = 0;
+    for (const sample of samples) sum += sample * sample;
+    if (Math.sqrt(sum / samples.length) > SPEAKING_RMS) speaking.push(speakerOf(key));
+  }
+  if (speaking.join() !== snapshot.speaking.join()) publish({ speaking });
+}
+
+function stopMeters() {
+  for (const { source } of meters.values()) source.disconnect();
+  meters.clear();
+  if (meterTimer !== null) window.clearInterval(meterTimer);
+  meterTimer = null;
+}
+
+const PREVIEW_WIDTH = 480;
+
+/** Still of the share's first frame: the sharer sees what goes out without a second live video. */
+async function firstFrame(stream: MediaStream) {
+  const video = document.createElement("video");
+  video.muted = true;
+  video.srcObject = stream;
+  await video.play();
+  const canvas = document.createElement("canvas");
+  canvas.width = PREVIEW_WIDTH;
+  canvas.height = Math.round((PREVIEW_WIDTH * video.videoHeight) / (video.videoWidth || 1));
+  canvas.getContext("2d")?.drawImage(video, 0, 0, canvas.width, canvas.height);
+  video.srcObject = null;
+  return canvas.toDataURL("image/jpeg", 0.7);
+}
+
 const call = new Call(socket, {
-  onPeersChange: (peers: PeerInfo[]) => publish({ peers }),
+  onPeersChange: (peers: PeerInfo[]) => {
+    // The stream on screen ended (or its peer left): back to the tiles.
+    const live = peers.some((peer) => peer.socketId === snapshot.watching && peer.sharing);
+    publish({ peers, ...(snapshot.watching && !live && { watching: null }) });
+  },
   onStream: (key, stream, label) => {
     const streams = stream
       ? [
@@ -34,7 +105,14 @@ const call = new Call(socket, {
           { key, stream, label, hasVideo: stream.getVideoTracks().length > 0 } satisfies VoiceStream,
         ]
       : snapshot.streams.filter((item) => !item.key.startsWith(key));
-    publish({ streams, ...(key === "local-screen" && { sharing: Boolean(stream) }) });
+    if (stream) meter(key, stream);
+    else for (const meterKey of [...meters.keys()]) if (meterKey.startsWith(key)) meter(meterKey, null);
+    publish({ streams, ...(key === "local-screen" && { sharing: Boolean(stream), preview: null }) });
+    if (key === "local-screen" && stream) {
+      void firstFrame(stream)
+        .then((preview) => snapshot.sharing && publish({ preview }))
+        .catch(() => {});
+    }
   },
   onStatus: (status) => publish({ status }),
 });
@@ -90,8 +168,13 @@ export async function joinVoice(channelId: string, audioInputId: string | null) 
   try {
     if (snapshot.channelId) await leaveVoice();
     releaseSocket ??= holdSocket();
+    // Created on the click that joins: browsers only start an AudioContext after a user gesture.
+    audio ??= new AudioContext();
+    void audio.resume();
     await call.join(channelId, audioInputId);
-    publish({ channelId, joining: false, muted: false, status: "Conectado ao canal de voz" });
+    meter("local-mic", call.micStream);
+    meterTimer ??= window.setInterval(sampleSpeaking, SPEAKING_POLL_MS);
+    publish({ channelId, socketId: socket.id ?? null, joining: false, muted: false, status: "Conectado ao canal de voz" });
   } catch (error) {
     releaseSocket?.();
     releaseSocket = null;
@@ -103,20 +186,43 @@ export async function leaveVoice() {
   try {
     await call.leave();
   } finally {
+    stopMeters();
     releaseSocket?.();
     releaseSocket = null;
     publish({
       channelId: null,
+      socketId: null,
+      speaking: [],
       peers: [],
       streams: [],
       joining: false,
       muted: false,
       deafened: false,
       sharing: false,
+      watching: null,
+      preview: null,
       status: null,
       error: null,
     });
   }
+}
+
+/** Watching stops this tab's own share first: a sharer never watches. */
+export async function watchStream(socketId: string) {
+  if (snapshot.watching === socketId) return;
+  if (call.sharing) call.stopShare();
+  publish({ watching: socketId, error: null });
+  try {
+    await call.watchStream(socketId);
+  } catch (error) {
+    publish({ watching: null, error: error instanceof Error ? error.message : "Não foi possível abrir a transmissão" });
+  }
+}
+
+export function unwatchStream() {
+  if (!snapshot.watching) return;
+  call.unwatchStream();
+  publish({ watching: null });
 }
 
 export function toggleVoiceMute() {
@@ -131,9 +237,25 @@ export async function toggleScreenShare() {
   publish({ error: null });
   try {
     if (call.sharing) call.stopShare();
-    else await call.startShare();
+    else {
+      unwatchStream(); // sharing and watching are exclusive
+      await call.startShare();
+    }
     publish({ sharing: call.sharing });
   } catch (error) {
     publish({ sharing: call.sharing, error: error instanceof Error ? error.message : "Não foi possível transmitir a aba" });
   }
 }
+
+export const DEFAULT_USER_AUDIO: UserAudio = { muted: false, volume: 1 };
+
+// ponytail: kept in memory for the tab's lifetime, not across reloads — persist in user settings if asked.
+function setUserAudio(userId: string, change: Partial<UserAudio>) {
+  const current = snapshot.userAudio[userId] ?? DEFAULT_USER_AUDIO;
+  publish({ userAudio: { ...snapshot.userAudio, [userId]: { ...current, ...change } } });
+}
+
+export const setUserVolume = (userId: string, volume: number) => setUserAudio(userId, { volume });
+
+export const toggleUserMute = (userId: string) =>
+  setUserAudio(userId, { muted: !(snapshot.userAudio[userId] ?? DEFAULT_USER_AUDIO).muted });

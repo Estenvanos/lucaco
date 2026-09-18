@@ -2081,8 +2081,7 @@ form {
   margin: -2rem;
 }
 
-.server > .chat-main,
-.server > .voice-stage {
+.server > .chat-main {
   overflow: hidden;
   border-top-left-radius: 18px;
   border-top-right-radius: 18px;
@@ -2266,9 +2265,20 @@ form {
   white-space: nowrap;
 }
 
-.server-voice-members small {
-  color: var(--lime);
-  font-size: 0.68rem;
+.server-voice-live {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 1.4rem;
+  height: 1.2rem;
+  border-radius: 4px;
+  background: #da373c;
+  color: #fff;
+}
+
+.server-voice-live svg {
+  width: 0.8rem;
+  height: 0.8rem;
 }
 
 .voice-dock {
@@ -2355,56 +2365,367 @@ form {
   font-size: 0.8rem;
 }
 
-.voice-stage {
-  min-width: 0;
+/* ---------- voice call: stage fills everything right of the channels column ---------- */
+.server[data-call] {
+  grid-template-columns: 16rem minmax(0, 1fr);
+}
+
+.voice-call {
+  position: relative;
   display: grid;
-  grid-template-rows: 1fr auto;
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-top-left-radius: 18px;
+  background: #000;
+}
+
+.voice-call:fullscreen {
+  border-radius: 0;
+}
+
+.voice-call > .chat-main {
+  width: 24rem;
+  border-right: 0;
+  border-left: 1px solid var(--line);
   background: var(--ink-1);
 }
 
-.voice-streams {
+.voice-stage {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  min-width: 0;
   min-height: 0;
+  color: #e6e8e4;
+}
+
+.voice-stage-head {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  min-width: 0;
+  height: 3rem;
+  padding: 0 1rem;
+}
+
+.voice-stage-head > .voice-icon-button {
+  margin-left: auto;
+}
+
+.voice-stage-head h1 {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.voice-stage-head h1 svg {
+  width: 1.2rem;
+  height: 1.2rem;
+  color: #8d918b;
+}
+
+.voice-icon-button {
   display: grid;
   place-items: center;
-  gap: 1rem;
-  padding: 1rem;
-  overflow: auto;
+  width: 2.25rem;
+  height: 2.25rem;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
 }
 
-.voice-stream {
-  width: min(100%, 72rem);
+.voice-icon-button:hover,
+.voice-icon-button[aria-pressed="true"] {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.voice-icon-button svg {
+  width: 1.3rem;
+  height: 1.3rem;
+}
+
+.chat-header-close {
+  margin-left: auto;
+  color: var(--text-dim);
+}
+
+/* No scroll either way: cards wrap and shrink to fit the stage. */
+.voice-tiles {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-content: center;
+  gap: 0.6rem;
+  min-width: 0;
+  min-height: 0;
+  padding: 0 1rem;
+  overflow: hidden;
+}
+
+.voice-tile {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: 0 1 18rem;
+  min-width: 10rem;
+  max-width: 100%;
+  aspect-ratio: 16 / 9;
   margin: 0;
   overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: #050505;
+  border-radius: 10px;
+  background: #1c1e21;
+  /* Inset ring instead of a border: turning green does not shift the layout. */
+  box-shadow: inset 0 0 0 2px transparent;
+  transition: box-shadow 120ms ease;
 }
 
-.voice-stream video {
-  display: block;
+.voice-tile[data-speaking="true"] {
+  box-shadow: inset 0 0 0 3px #23a55a;
+}
+
+.voice-tile .chat-avatar-lg {
+  width: 4rem;
+  height: 4rem;
+  border: 0;
+}
+
+/* Local share: a dimmed still of the first frame behind the avatar. */
+.voice-tile-preview {
+  position: absolute;
+  inset: 0;
   width: 100%;
-  max-height: calc(100vh - 13rem);
-  object-fit: contain;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.35;
 }
 
-.voice-stream figcaption {
-  padding: 0.45rem 0.7rem;
-  color: var(--text-dim);
+.voice-tile > .chat-avatar {
+  position: relative;
+}
+
+.voice-tile-live {
+  position: absolute;
+  top: 0.6rem;
+  left: 0.6rem;
+  right: 0.6rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.voice-live-badge {
+  padding: 0.15rem 0.45rem;
+  border-radius: 4px;
+  background: #da373c;
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.voice-watch-button,
+.voice-leave-stream {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.3rem 0.7rem;
+  border: 0;
+  border-radius: var(--radius);
+  font: inherit;
   font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
 }
 
-.voice-stage-empty {
-  color: var(--text-dim);
-  text-align: center;
+.voice-watch-button {
+  margin-left: auto;
+  background: var(--lime);
+  color: var(--on-lime);
 }
 
-.voice-stage-empty p {
-  margin: 0.35rem 0 0;
+.voice-leave-stream {
+  flex: none;
+  background: #2a2d31;
+  color: #e6e8e4;
+}
+
+.voice-leave-stream:hover {
+  background: #3a3d42;
+}
+
+.voice-leave-stream svg {
+  width: 0.95rem;
+  height: 0.95rem;
+}
+
+.voice-viewers {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-basis: 100%;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: #b5b9b3;
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.voice-stage-head .voice-viewers {
+  flex: 0 1 auto;
+}
+
+.voice-viewers-avatars {
+  display: flex;
+  flex: none;
+}
+
+.voice-viewers-more {
+  margin-left: 0.5rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+.voice-viewers-avatars .chat-avatar {
+  width: 1.6rem;
+  height: 1.6rem;
+  margin-right: -0.4rem;
+  border: 2px solid #1c1e21;
+  font-size: 0.6rem;
+}
+
+/* Watching: the stream takes the whole stage, no tiles. */
+.voice-watch {
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  min-height: 0;
+  padding: 0 1rem;
+  overflow: hidden;
+}
+
+.voice-watch-video {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  object-fit: contain;
+  background: #000;
+}
+
+.voice-call:fullscreen .voice-watch {
+  padding: 0;
+}
+
+.voice-watch-waiting {
+  color: #8d918b;
+}
+
+.voice-tile-name {
+  position: absolute;
+  left: 0.75rem;
+  bottom: 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  max-width: calc(100% - 1.5rem);
+  padding: 0.3rem 0.55rem;
+  overflow: hidden;
+  border-radius: var(--radius);
+  background: rgba(0, 0, 0, 0.55);
   font-size: 0.85rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.voice-tile-name svg {
+  flex: none;
+  width: 0.95rem;
+  height: 0.95rem;
+  color: #ff6b5e;
 }
 
 .voice-stage-error {
-  padding: 0 1rem 1rem;
+  margin: 0;
+  padding: 0.5rem 1rem 0;
+  text-align: center;
+}
+
+.voice-stage-bar {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  min-height: 3.25rem;
+  padding: 0.5rem 1rem;
+}
+
+.voice-stage-controls {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.voice-stage-controls button {
+  display: grid;
+  place-items: center;
+  width: 3.25rem;
+  height: 3rem;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: #1c1e21;
+  color: inherit;
+  cursor: pointer;
+}
+
+.voice-stage-controls button:hover {
+  background: #2a2d31;
+}
+
+.voice-stage-controls button[aria-pressed="true"] {
+  color: #ff6b5e;
+}
+
+.voice-stage-controls .voice-stage-leave {
+  width: 4.5rem;
+  background: #da373c;
+}
+
+.voice-stage-controls .voice-stage-leave:hover {
+  background: #b92d31;
+}
+
+.voice-stage-controls svg {
+  width: 1.3rem;
+  height: 1.3rem;
+}
+
+.voice-stage-fullscreen {
+  position: absolute;
+  right: 1rem;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+@media (max-width: 900px) {
+  .voice-call {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* Narrow screens: the chat covers the stage instead of squeezing it. */
+  .voice-call > .chat-main {
+    position: absolute;
+    inset: 0 0 0 auto;
+    width: min(100%, 24rem);
+    z-index: 1;
+  }
 }
 
 .server-text {
@@ -2667,4 +2988,68 @@ form {
 
 .settings-notice .button {
   flex-shrink: 0;
+}
+
+/* ---------- voice user menu (right-click on a voice tile) ---------- */
+
+.voice-user-menu {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  width: 14rem;
+  padding: 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--ink-2);
+  color: var(--text);
+  font-size: 0.875rem;
+}
+
+.voice-user-menu-name {
+  margin: 0.25rem 0.5rem 0.5rem;
+  font-size: 0.8125rem;
+  color: var(--text-dim);
+}
+
+.voice-user-menu label {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.voice-user-menu label:hover {
+  background: rgba(190, 251, 0, 0.12);
+}
+
+.voice-user-menu-volume {
+  flex-direction: column;
+}
+
+.voice-user-menu-volume span {
+  display: flex;
+  justify-content: space-between;
+}
+
+.voice-user-menu input {
+  accent-color: var(--lime);
+}
+
+.voice-tile:focus-visible {
+  outline: 2px solid var(--lime);
+  outline-offset: 2px;
+}
+
+.server-voice-silenced {
+  flex: none;
+  width: 0.95rem;
+  height: 0.95rem;
+  margin-left: auto;
+  color: #ff6b5e;
+}
+
+.server-voice-members li:focus-visible {
+  outline: 2px solid var(--lime);
+  outline-offset: 2px;
 }

@@ -50,7 +50,9 @@ describe("join", () => {
     const peers = await voice.join(io, "a", "user-a", "sala");
 
     expect(canConnect).toHaveBeenCalledWith("sala", "user-a");
-    expect(peers).toEqual([{ socketId: "b", userId: "user-b", username: "name-b", sharing: true }]);
+    expect(peers).toEqual([
+      { socketId: "b", userId: "user-b", username: "name-b", sharing: true, viewing: null },
+    ]);
     expect(newcomer.join).toHaveBeenCalledWith("voice:sala");
     expect(newcomer.data.voiceChannelId).toBe("sala");
     expect(emit).toHaveBeenCalledWith(
@@ -113,7 +115,7 @@ describe("watch", () => {
     expect(viewer.join).toHaveBeenCalledWith("voice-watchers:sala");
     expect(viewer.join).not.toHaveBeenCalledWith("voice:sala");
     expect(result).toEqual([
-      { socketId: "caller", userId: "user-caller", username: "name-caller", sharing: true },
+      { socketId: "caller", userId: "user-caller", username: "name-caller", sharing: true, viewing: null },
     ]);
   });
 
@@ -155,6 +157,101 @@ describe("setSharing", () => {
     await expect(voice.setSharing(server([sharer]), "a", "user-a", true)).rejects.toThrow("forbidden");
     expect(sharer.data.sharing).toBeUndefined();
     expect(emit).not.toHaveBeenCalled();
+  });
+});
+
+describe("setSharing and viewers", () => {
+  it("refuses to share while watching another stream", async () => {
+    canStream.mockResolvedValue(undefined);
+    const viewer = socket("a", { voiceChannelId: "sala", viewing: "b" });
+
+    await expect(voice.setSharing(server([viewer]), "a", "user-a", true)).rejects.toMatchObject({ status: 409 });
+    expect(viewer.data.sharing).toBeUndefined();
+  });
+
+  it("drops every viewer when the stream stops", async () => {
+    const streamer = socket("a", { voiceChannelId: "sala", sharing: true });
+    const viewer = socket("b", { voiceChannelId: "sala", viewing: "a" });
+
+    await voice.setSharing(server([streamer, viewer]), "a", "user-a", false);
+
+    expect(viewer.data.viewing).toBeUndefined();
+    expect(emit).toHaveBeenCalledWith("voice:screen", { socketId: "a", sharing: false });
+  });
+});
+
+describe("watchStream", () => {
+  it("records the viewer and asks the streamer to send the tab to it", async () => {
+    const streamer = socket("a", { voiceChannelId: "sala", sharing: true });
+    const viewer = socket("b", { voiceChannelId: "sala" });
+    const io = server([streamer, viewer]);
+
+    await voice.watchStream(io, "b", "a");
+
+    expect(viewer.data.viewing).toBe("a");
+    expect(emit).toHaveBeenCalledWith("voice:viewer", { socketId: "b", watching: true });
+  });
+
+  it("does not let a sharer watch a stream", async () => {
+    const streamer = socket("a", { voiceChannelId: "sala", sharing: true });
+    const sharer = socket("b", { voiceChannelId: "sala", sharing: true });
+
+    await expect(voice.watchStream(server([streamer, sharer]), "b", "a")).rejects.toMatchObject({ status: 409 });
+    expect(sharer.data.viewing).toBeUndefined();
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it("requires the viewer to be in the call", async () => {
+    const streamer = socket("a", { voiceChannelId: "sala", sharing: true });
+    const outsider = socket("b");
+
+    await expect(voice.watchStream(server([streamer, outsider]), "b", "a")).rejects.toMatchObject({ status: 409 });
+    expect(outsider.data.viewing).toBeUndefined();
+  });
+
+  it("only opens a live stream of the same call", async () => {
+    const idle = socket("a", { voiceChannelId: "sala" });
+    const elsewhere = socket("c", { voiceChannelId: "outra", sharing: true });
+    const viewer = socket("b", { voiceChannelId: "sala" });
+    const io = server([idle, elsewhere, viewer]);
+
+    await expect(voice.watchStream(io, "b", "a")).rejects.toMatchObject({ status: 404 });
+    await expect(voice.watchStream(io, "b", "c")).rejects.toMatchObject({ status: 404 });
+    await expect(voice.watchStream(io, "b", "b")).rejects.toMatchObject({ status: 404 });
+    await expect(voice.watchStream(io, "b", "ghost")).rejects.toMatchObject({ status: 404 });
+    expect(viewer.data.viewing).toBeUndefined();
+  });
+
+  it("watches one stream at a time: switching leaves the previous one", async () => {
+    const first = socket("a", { voiceChannelId: "sala", sharing: true });
+    const second = socket("c", { voiceChannelId: "sala", sharing: true });
+    const viewer = socket("b", { voiceChannelId: "sala", viewing: "a" });
+
+    await voice.watchStream(server([first, second, viewer]), "b", "c");
+
+    expect(viewer.data.viewing).toBe("c");
+    expect(emit).toHaveBeenCalledWith("voice:viewer", { socketId: "b", watching: false });
+    expect(emit).toHaveBeenCalledWith("voice:viewer", { socketId: "b", watching: true });
+  });
+});
+
+describe("unwatchStream", () => {
+  it("clears the viewer and tells the streamer to stop sending", async () => {
+    const viewer = socket("b", { voiceChannelId: "sala", viewing: "a" });
+
+    await voice.unwatchStream(server([viewer]), "b");
+
+    expect(viewer.data.viewing).toBeUndefined();
+    expect(emit).toHaveBeenCalledWith("voice:viewer", { socketId: "b", watching: false });
+  });
+
+  it("leaving the call also leaves the stream", async () => {
+    const viewer = socket("b", { voiceChannelId: "sala", viewing: "a" });
+
+    await voice.leave(server([viewer]), "b");
+
+    expect(viewer.data.viewing).toBeUndefined();
+    expect(emit).toHaveBeenCalledWith("voice:viewer", { socketId: "b", watching: false });
   });
 });
 

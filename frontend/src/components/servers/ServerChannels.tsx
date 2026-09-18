@@ -5,7 +5,9 @@ import { formatDate } from "../../lib/utils";
 import type { ServerChannelsProps } from "../../types/ui.types";
 import { FormError } from "../shared/FormError";
 import { ChatAvatar } from "../chat/ChatAvatar";
+import { DEFAULT_USER_AUDIO } from "../../services/voice/voice";
 import { ServerAvatar } from "./ServerAvatar";
+import { openVoiceUserMenu, VoiceUserMenu } from "./VoiceUserMenu";
 
 export function ServerChannels({
   server,
@@ -24,6 +26,8 @@ export function ServerChannels({
   onMuteVoice,
   onDeafenVoice,
   onShareVoice,
+  onUserVolume,
+  onUserMute,
 }: ServerChannelsProps) {
   const nameError = createForm.errors.name ?? createForm.submitError;
   const joinedHere = voice.channelId === voiceChannel?.id;
@@ -80,8 +84,15 @@ export function ServerChannels({
             <ul className="server-voice-members">
               {participants.map((participant) => {
                 const member = members.find((item) => item.userId === participant.userId);
+                const audio = voice.userAudio[participant.userId] ?? DEFAULT_USER_AUDIO;
+                // Only while in the call, and never on yourself: there is nothing to play otherwise.
+                const hasMenu = joinedHere && participant.userId !== currentUserId;
                 return (
-                  <li key={participant.userId}>
+                  <li
+                    key={participant.userId}
+                    tabIndex={hasMenu ? 0 : undefined}
+                    onContextMenu={hasMenu ? openVoiceUserMenu : undefined}
+                  >
                     <ChatAvatar user={{
                       id: participant.userId,
                       username: participant.username,
@@ -90,8 +101,21 @@ export function ServerChannels({
                     }} />
                     <span>
                       <strong>{participant.username}</strong>
-                      {participant.sharing && <small>transmitindo</small>}
                     </span>
+                    {participant.sharing && (
+                      <span className="server-voice-live" role="img" aria-label="Transmitindo" title="Transmitindo">
+                        <ScreenShare aria-hidden />
+                      </span>
+                    )}
+                    {audio.muted && <VolumeX className="server-voice-silenced" aria-label="Silenciado para você" />}
+                    {hasMenu && (
+                      <VoiceUserMenu
+                        name={member?.displayName ?? participant.username}
+                        audio={audio}
+                        onVolume={(volume) => onUserVolume(participant.userId, volume)}
+                        onMute={() => onUserMute(participant.userId)}
+                      />
+                    )}
                   </li>
                 );
               })}

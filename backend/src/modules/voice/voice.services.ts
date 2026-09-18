@@ -1,20 +1,25 @@
-import type { Server } from "socket.io";
+import type { Server, Socket } from "socket.io";
 import { SOCKET_EVENTS } from "../../lib/constants.js";
+import { HttpError } from "../../lib/http-error.js";
 import { logger } from "../../lib/logger.js";
 import * as channelsService from "../channels/channels.services.js";
 
-export type Peer = { socketId: string; userId: string; username: string; sharing: boolean };
+/** `viewing`: socket id of the stream this peer is watching (one at a time), or null. */
+export type Peer = { socketId: string; userId: string; username: string; sharing: boolean; viewing: string | null };
+
+const toPeer = (socket: { id: string; data: Record<string, any> }): Peer => ({
+  socketId: socket.id,
+  userId: socket.data.userId,
+  username: socket.data.username,
+  sharing: Boolean(socket.data.sharing),
+  viewing: socket.data.viewing ?? null,
+});
 
 const roomKey = (channelId: string) => `voice:${channelId}`;
 const watchersKey = (channelId: string) => `voice-watchers:${channelId}`;
 
 async function participants(io: Server, channelId: string): Promise<Peer[]> {
-  return (await io.in(roomKey(channelId)).fetchSockets()).map((socket) => ({
-    socketId: socket.id,
-    userId: socket.data.userId,
-    username: socket.data.username,
-    sharing: Boolean(socket.data.sharing),
-  }));
+  return (await io.in(roomKey(channelId)).fetchSockets()).map(toPeer);
 }
 
 async function announceParticipants(io: Server, channelId: string) {
@@ -33,12 +38,7 @@ export async function join(io: Server, socketId: string, userId: string, channel
   const socket = io.sockets.sockets.get(socketId)!;
   if (socket.data.voiceChannelId) await leave(io, socketId);
 
-  const peers: Peer[] = (await io.in(roomKey(channelId)).fetchSockets()).map((s) => ({
-    socketId: s.id,
-    userId: s.data.userId,
-    username: s.data.username,
-    sharing: Boolean(s.data.sharing),
-  }));
+  const peers = (await io.in(roomKey(channelId)).fetchSockets()).map(toPeer);
 
   socket.join(roomKey(channelId));
   socket.data.voiceChannelId = channelId;
@@ -48,6 +48,7 @@ export async function join(io: Server, socketId: string, userId: string, channel
     userId: socket.data.userId,
     username: socket.data.username,
     sharing: false,
+    viewing: null,
   } satisfies Peer);
   await announceParticipants(io, channelId);
 
@@ -60,7 +61,11 @@ export async function leave(io: Server, socketId: string) {
   if (!socket || !channelId) return;
   socket.leave(roomKey(channelId));
   socket.data.voiceChannelId = undefined;
-  if (socket.data.sharing) logger.info(`voice: ${socket.data.username} stopped sharing in channel ${channelId}`);
+  stopViewing(io, socket);
+  if (socket.data.sharing) {
+    logger.info(`voice: ${socket.data.username} stopped sharing in channel ${channelId}`);
+    dropViewers(io, socketId);
+  }
   socket.data.sharing = false;
   logger.info(`voice: ${socket.data.username} left channel ${channelId}`);
   io.to(roomKey(channelId)).emit(SOCKET_EVENTS.voicePeerLeft, { socketId });
@@ -94,11 +99,71 @@ export async function setSharing(io: Server, socketId: string, userId: string, s
   const socket = io.sockets.sockets.get(socketId);
   const channelId: string | undefined = socket?.data.voiceChannelId;
   if (!socket || !channelId) return false;
-  if (sharing) await channelsService.canStream(channelId, userId);
+  if (sharing) {
+    await channelsService.canStream(channelId, userId);
+    if (socket.data.viewing) throw new HttpError(409, "Leave the stream you are watching before sharing");
+  } else {
+    dropViewers(io, socketId);
+  }
   socket.data.sharing = sharing;
   logger.info(`voice: ${socket.data.username} ${sharing ? "started" : "stopped"} sharing in channel ${channelId}`);
   socket.to(roomKey(channelId)).emit(SOCKET_EVENTS.voiceScreen, { socketId, sharing });
+  await announceParticipants(io, channelId);
   return true;
+}
+
+/** Tells the streamer to start or stop sending its tab to this viewer. */
+function notifyStreamer(io: Server, streamerId: string, viewerId: string, watching: boolean) {
+  io.to(streamerId).emit(SOCKET_EVENTS.voiceViewer, { socketId: viewerId, watching });
+}
+
+function stopViewing(io: Server, viewer: Socket) {
+  const streamerId: string | undefined = viewer.data.viewing;
+  if (!streamerId) return false;
+  viewer.data.viewing = undefined;
+  notifyStreamer(io, streamerId, viewer.id, false);
+  return true;
+}
+
+/** A stream that ended has no viewers left; they learn it from voice:screen. */
+function dropViewers(io: Server, streamerId: string) {
+  // ponytail: scans local sockets — with the Redis adapter this becomes a per-stream room.
+  for (const socket of io.sockets.sockets.values()) {
+    if (socket.data.viewing === streamerId) socket.data.viewing = undefined;
+  }
+}
+
+/**
+ * Opt-in viewing: the streamer only sends its tab to sockets that asked for it. One stream at a
+ * time (watching another leaves the current one), and a sharer cannot watch.
+ */
+export async function watchStream(io: Server, viewerId: string, streamerId: string) {
+  const viewer = io.sockets.sockets.get(viewerId);
+  const channelId: string | undefined = viewer?.data.voiceChannelId;
+  if (!viewer || !channelId) throw new HttpError(409, "Join a room first");
+  if (viewer.data.sharing) throw new HttpError(409, "Stop sharing before watching a stream");
+  const streamer = io.sockets.sockets.get(streamerId);
+  if (
+    !streamer ||
+    streamerId === viewerId ||
+    streamer.data.voiceChannelId !== channelId ||
+    !streamer.data.sharing
+  ) {
+    throw new HttpError(404, "Stream not found");
+  }
+  if (viewer.data.viewing === streamerId) return;
+
+  stopViewing(io, viewer);
+  viewer.data.viewing = streamerId;
+  notifyStreamer(io, streamerId, viewerId, true);
+  logger.info(`voice: ${viewer.data.username} is watching ${streamer.data.username}`);
+  await announceParticipants(io, channelId);
+}
+
+export async function unwatchStream(io: Server, viewerId: string) {
+  const viewer = io.sockets.sockets.get(viewerId);
+  if (!viewer || !stopViewing(io, viewer)) return;
+  await announceParticipants(io, viewer.data.voiceChannelId);
 }
 
 /** Only peers in the same room can signal each other. */
