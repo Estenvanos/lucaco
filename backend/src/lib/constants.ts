@@ -6,6 +6,8 @@ export const SOCKET_EVENTS = {
   voiceLeave: "voice:leave",
   voiceSignal: "voice:signal",
   voiceScreen: "voice:screen",
+  messageSend: "message:send",
+  messageNew: "message:new",
 } as const;
 
 /** Refresh cookie: scoped to /auth so it is never sent to the rest of the API. */

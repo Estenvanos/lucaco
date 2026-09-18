@@ -7,6 +7,7 @@ export const env = z
     PORT: z.coerce.number().default(3333),
     CORS_ORIGIN: z.string().transform((s) => s.split(",").map((o) => o.trim())),
     DATABASE_URL: z.string().url(),
+    MONGO_URL: z.string().url(),
     JWT_ACCESS_SECRET: z.string().min(32),
     JWT_ACCESS_TTL: z.string().default("15m"),
     REFRESH_TTL_DAYS: z.coerce.number().default(30),

@@ -256,11 +256,14 @@ Ao inserir, a aplicação ordena os dois IDs antes de gravar. "São amigos?" = e
 ### 5.3 Servers, membros, papéis e convites
 
 ```sql
+CREATE TYPE server_visibility AS ENUM ('public', 'private');
+
 CREATE TABLE servers (
   id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   owner_id    UUID NOT NULL REFERENCES users(id),
   name        VARCHAR(100) NOT NULL,
   icon_url    TEXT,
+  visibility  server_visibility NOT NULL DEFAULT 'public',
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

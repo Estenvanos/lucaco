@@ -3,10 +3,11 @@
   "private": true,
   "scripts": {
     "setup": "npm install && npm --prefix backend install && npm --prefix frontend install",
-    "services": "docker compose up -d --wait postgres minio && npm --prefix backend run db:deploy",
-    "services:down": "docker compose stop postgres minio",
+    "services": "docker compose up -d --wait postgres minio mongo && npm --prefix backend run db:deploy",
+    "services:down": "docker compose stop postgres minio mongo",
     "dev": "concurrently -n api,web -c blue,magenta \"npm --prefix backend run dev\" \"npm run wait-api && npm --prefix frontend run dev\"",
-    "wait-api": "node -e \"const net=require('net');(function t(){net.connect(3333,'localhost').on('connect',()=>process.exit()).on('error',()=>setTimeout(t,300))})()\""
+    "wait-api": "node -e \"const net=require('net');(function t(){net.connect(3333,'localhost').on('connect',()=>process.exit()).on('error',()=>setTimeout(t,300))})()\"",
+    "seed": "node scripts/seed-dev.mjs"
   },
   "devDependencies": {
     "concurrently": "^10.0.5"

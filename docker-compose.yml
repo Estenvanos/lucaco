@@ -30,6 +30,17 @@ services:
       interval: 5s
       retries: 10
 
+  mongo:
+    image: mongo:8
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      retries: 10
+
   api:
     build: ./backend
     env_file: ./backend/.env
@@ -37,6 +48,7 @@ services:
       NODE_ENV: development # secure cookies off over plain http
       DATABASE_URL: postgresql://lucaco:lucaco@postgres:5432/lucaco?schema=public
       S3_ENDPOINT: http://minio:9000
+      MONGO_URL: mongodb://mongo:27017/lucaco
       CORS_ORIGIN: http://localhost:8080
     ports:
       - "3333:3333"
@@ -44,6 +56,8 @@ services:
       postgres:
         condition: service_healthy
       minio:
+        condition: service_healthy
+      mongo:
         condition: service_healthy
 
   web:
@@ -56,3 +70,4 @@ services:
 volumes:
   postgres-data:
   minio-data:
+  mongo-data:
