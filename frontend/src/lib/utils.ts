@@ -8,6 +8,22 @@ export const initials = (name: string) => name.slice(0, 2).toUpperCase();
 
 export const formatDate = (iso: string) => new Date(iso).toLocaleDateString("pt-BR");
 
+/** Calls `fn` only once `ms` pass without a new call; the last call's arguments win. */
+export function debounce<A extends unknown[]>(fn: (...args: A) => void, ms: number) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return (...args: A) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), ms);
+  };
+}
+
+/** What a search box sends to the API: trimmed, lowercase, inner runs of spaces collapsed. */
+export const normalizeSearch = (text: string) => text.trim().toLowerCase().replace(/\s+/g, " ");
+
+/** Search input handler: normalizes the raw text and hands it to `onSearch` once typing pauses. */
+export const debounceSearch = (onSearch: (query: string) => void, ms = 200) =>
+  debounce((raw: string) => onSearch(normalizeSearch(raw)), ms);
+
 /**
  * Shortest signed distance from `offset` to slot `index` on a closed ring, in slots.
  * With 8 items, slot 0 is one step after slot 7 — never seven steps back. This is what lets the

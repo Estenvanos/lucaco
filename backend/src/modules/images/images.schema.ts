@@ -6,6 +6,7 @@ export const IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 export const IMAGE_PRESETS = {
   avatars: { width: 512, height: 512, quality: 80 },
   servers: { width: 256, height: 256, quality: 80 },
+  banners: { width: 960, height: 400, quality: 78 }, // discovery card background, ~2.4:1
 } as const;
 
 export type ImageFolder = keyof typeof IMAGE_PRESETS;

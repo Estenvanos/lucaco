@@ -62,17 +62,20 @@ model Session {
 }
 
 model Server {
-  id         String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  ownerId    String           @map("owner_id") @db.Uuid
-  name       String           @db.VarChar(100)
-  iconUrl    String?          @map("icon_url") // object storage key
-  visibility ServerVisibility @default(public)
-  createdAt  DateTime         @default(now()) @map("created_at") @db.Timestamptz
-  owner      User             @relation(fields: [ownerId], references: [id])
-  members    ServerMember[]
-  roles      Role[]
-  invites    Invite[]
-  channels   Channel[]
+  id          String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ownerId     String           @map("owner_id") @db.Uuid
+  name        String           @db.VarChar(100)
+  description String?          @db.VarChar(300)
+  category    String           @default("other") @db.VarChar(32) // one of SERVER_CATEGORIES (lib/constants.ts)
+  iconUrl     String?          @map("icon_url") // object storage key
+  bannerUrl   String?          @map("banner_url") // object storage key, card background on /descobrir
+  visibility  ServerVisibility @default(public)
+  createdAt   DateTime         @default(now()) @map("created_at") @db.Timestamptz
+  owner       User             @relation(fields: [ownerId], references: [id])
+  members     ServerMember[]
+  roles       Role[]
+  invites     Invite[]
+  channels    Channel[]
 
   @@index([ownerId])
   @@map("servers")

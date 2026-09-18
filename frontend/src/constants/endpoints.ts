@@ -12,7 +12,11 @@ export const ENDPOINTS = {
   },
   servers: {
     root: "/servers",
+    search: (query: string) => `/servers/search?q=${encodeURIComponent(query)}`,
+    discover: (query: string, category: string | null) =>
+      `/servers/discover?${new URLSearchParams({ q: query, ...(category && { category }) })}`,
     detail: (serverId: string) => `/servers/${serverId}`,
+    image: (serverId: string, kind: "icon" | "banner") => `/servers/${serverId}/${kind}`,
     members: (serverId: string) => `/servers/${serverId}/members`,
     acceptInvite: (code: string) => `/servers/invites/${code}/accept`,
   },

@@ -42,3 +42,16 @@ export const DEFAULT_PERMISSIONS =
   PERMISSIONS.CONNECT |
   PERMISSIONS.SPEAK |
   PERMISSIONS.STREAM;
+
+/** Discovery categories a server can pick. The frontend mirrors this list with labels. */
+export const SERVER_CATEGORIES = [
+  "gaming",
+  "music",
+  "entertainment",
+  "science_tech",
+  "education",
+  "student_hubs",
+  "other",
+] as const;
+
+export type ServerCategory = (typeof SERVER_CATEGORIES)[number];

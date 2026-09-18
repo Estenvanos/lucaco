@@ -1,6 +1,13 @@
 /** Run with `node src/lib/utils.check.ts` — fails loudly if the scoring rules drift. */
 import assert from "node:assert/strict";
-import { listRules, missingPasswordRules, ringDelta, scorePassword } from "./utils.ts";
+import {
+  debounceSearch,
+  listRules,
+  missingPasswordRules,
+  normalizeSearch,
+  ringDelta,
+  scorePassword,
+} from "./utils.ts";
 
 const level = (password: string) => scorePassword(password).level;
 
@@ -39,3 +46,15 @@ assert.equal(ringDelta(0, 0, 1), 0, "a wheel holding only the add button never m
 assert.ok(Math.abs(ringDelta(4, 0, 8)) === 4, "the far side is half a ring away, either way");
 
 console.log("scorePassword + ringDelta: ok");
+
+assert.equal(normalizeSearch("  Pixel   CLUB \n"), "pixel club", "trims, lowercases, collapses spaces");
+assert.equal(normalizeSearch("   "), "", "blank stays blank");
+
+const sent: string[] = [];
+const search = debounceSearch((query) => sent.push(query), 20);
+search("P");
+search("Pi");
+search("  PIXEL ");
+await new Promise((resolve) => setTimeout(resolve, 40));
+assert.deepEqual(sent, ["pixel"], "only the last keystroke reaches the API, normalized");
+
