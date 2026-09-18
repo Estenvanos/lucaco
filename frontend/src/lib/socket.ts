@@ -1,5 +1,5 @@
 import { io } from "socket.io-client";
-import { API_URL, getAccessToken, refreshAccessToken } from "./api";
+import { API_URL, getAccessToken, refreshOnce } from "./api";
 
 /**
  * The user's one socket, shared by every module (notifications now, voice and messages later).
@@ -15,7 +15,8 @@ export const socket = io(API_URL, {
 // the next HTTP call sends the user to sign-in, so the socket just stays down.
 socket.on("connect_error", (err) => {
   if (err.message !== "unauthorized") return;
-  refreshAccessToken()
+  // refreshOnce, not refreshAccessToken: an HTTP 401 refreshing at the same time must share the call.
+  refreshOnce()
     .then(() => socket.connect())
     .catch(() => {});
 });
