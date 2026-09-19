@@ -137,6 +137,7 @@ Regras:
 - Autorização sempre na API, nunca no SFU. O SFU só valida token efêmero assinado pela API.
 - Mensagens são ciphertext opaco (E2E no cliente); o servidor nunca decifra.
 - helmet, CORS restrito (`CORS_ORIGIN`), limites de payload/upload.
+- Rate limit em `lib/rate-limit.ts` (`express-rate-limit`): `limits.global` por IP em toda rota; auth com limiters próprios (`signIn`/`signInIp`/`signUp`/`refresh`/`sensitive`); toda rota nova de escrita de config leva `limits.config` (depois de `requireAuth`), upload leva `limits.upload`; evento de socket passa `socketLimits.*` como último argumento de `on(...)`. Contadores em memória: com >1 instância, trocar por store Redis.
 
 ## Banco (Prisma)
 

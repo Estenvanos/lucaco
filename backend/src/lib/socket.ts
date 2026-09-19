@@ -1,13 +1,20 @@
 import type { Server, Socket } from "socket.io";
 import { toErrorResponse } from "./error-handler.js";
+import { HttpError } from "./http-error.js";
 import { logger } from "./logger.js";
+import type { SocketLimiter } from "./rate-limit.js";
 
 export type SocketHandler = (io: Server, socket: Socket, payload: unknown) => unknown;
 
-/** Socket equivalent of the Express error handler: result or error goes back through the ack. */
-export function on(io: Server, socket: Socket, event: string, handler: SocketHandler) {
+/**
+ * Socket equivalent of the Express error handler: result or error goes back through the ack.
+ * With a limiter, a user over the limit gets a 429 ack and the handler never runs.
+ */
+export function on(io: Server, socket: Socket, event: string, handler: SocketHandler, limiter?: SocketLimiter) {
   socket.on(event, async (payload: unknown, ack?: (res: unknown) => void) => {
     try {
+      const wait = await limiter?.hit(socket.data.userId);
+      if (wait) throw new HttpError(429, `Too many requests, try again in ${wait}s`);
       // `ack?.(await handler())` would skip the handler when there is no ack: optional call does not evaluate its arguments.
       const result = await handler(io, socket, payload);
       ack?.(result);
