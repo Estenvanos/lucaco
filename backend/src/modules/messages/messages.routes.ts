@@ -1,6 +1,7 @@
 import { Router } from "express";
 import type { Server } from "socket.io";
 import { SOCKET_EVENTS } from "../../lib/constants.js";
+import { socketLimits } from "../../lib/rate-limit.js";
 import { on } from "../../lib/socket.js";
 import { requireAuth } from "../auth/auth.middleware.js";
 import * as messagesController from "./messages.controller.js";
@@ -17,7 +18,7 @@ messagesRouter.post("/channels/:channelId/keys/:epoch/shares", requireAuth, mess
 
 export function registerMessagesSocket(io: Server) {
   io.on("connection", (socket) => {
-    on(io, socket, SOCKET_EVENTS.messageSend, messagesController.send);
-    on(io, socket, SOCKET_EVENTS.messageTyping, messagesController.typing);
+    on(io, socket, SOCKET_EVENTS.messageSend, messagesController.send, socketLimits.messageSend);
+    on(io, socket, SOCKET_EVENTS.messageTyping, messagesController.typing, socketLimits.typing);
   });
 }

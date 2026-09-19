@@ -8,6 +8,7 @@ import { JSON_BODY_LIMIT } from "./lib/constants.js";
 import { env } from "./env.js";
 import { errorHandler, notFoundHandler } from "./lib/error-handler.js";
 import { logger, requestLogger } from "./lib/logger.js";
+import { limits } from "./lib/rate-limit.js";
 import { connectMongo, ensureMessageIndexes } from "./lib/mongo.js";
 import { prisma } from "./lib/prisma.js";
 import { initSocket } from "./lib/socket.js";
@@ -32,7 +33,11 @@ process.on("uncaughtException", (err) => {
 
 const app = express();
 
-app.set("trust proxy", 1);
+// Two hops: Cloudflare, then the Railway edge. With 1, req.ip would be the Cloudflare node and
+// every user behind it would share one rate-limit counter.
+// ponytail: a request sent straight to the Railway origin can spoof X-Forwarded-For. Lock the
+// origin to Cloudflare (or read CF-Connecting-IP behind an origin check) if that gets abused.
+app.set("trust proxy", 2);
 app.use(requestLogger);
 app.use(helmet());
 app.use(cors({ origin: env.CORS_ORIGIN, credentials: true }));
@@ -42,6 +47,7 @@ app.use(cookieParser());
 app.get("/health", (_req, res) => {
   res.json({ ok: true });
 });
+app.use(limits.global);
 app.use("/auth", authRouter);
 app.use("/users", usersRouter);
 app.use("/servers", serversRouter);
