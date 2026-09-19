@@ -57,9 +57,11 @@ app.use(errorHandler);
 async function checkDependency(name: string, target: string, check: () => Promise<unknown>) {
   try {
     await check();
-  } catch {
-    logger.error(`${name} unreachable at ${target}`);
-    logger.error("Start the services with `npm run services` in the project root (Docker must be running).");
+  } catch (err) {
+    logger.error(`${name} unreachable at ${target}:`, err instanceof Error ? err.message : err);
+    if (env.NODE_ENV !== "production") {
+      logger.error("Start the services with `npm run services` in the project root (Docker must be running).");
+    }
     process.exit(1);
   }
 }
