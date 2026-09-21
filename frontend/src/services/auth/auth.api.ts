@@ -21,14 +21,14 @@ const start = ({ accessToken, user }: AuthSession) => {
 export const useSignIn = () =>
   useMutation({
     mutationFn: (input: SignInInput) =>
-      request<AuthSession>(ENDPOINTS.auth.signIn, { method: "POST", body: input }),
+      request<AuthSession>(ENDPOINTS.auth.signIn, { method: "POST", body: input, skipRefresh: true }),
     onSuccess: start,
   });
 
 export const useSignUp = () =>
   useMutation({
     mutationFn: (input: SignUpInput) =>
-      request<AuthSession>(ENDPOINTS.auth.signUp, { method: "POST", body: input }),
+      request<AuthSession>(ENDPOINTS.auth.signUp, { method: "POST", body: input, skipRefresh: true }),
     onSuccess: start,
   });
 
