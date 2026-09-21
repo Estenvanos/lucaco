@@ -13,3 +13,6 @@ dist
 
 # TypeScript incremental build cache
 *.tsbuildinfo
+
+# Project instructions for Claude (local only)
+CLAUDE.md
