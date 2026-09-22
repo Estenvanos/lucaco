@@ -2,6 +2,8 @@
 export const LIMITS = {
   username: { min: 3, max: 32, pattern: /^[a-zA-Z0-9_.]+$/ },
   password: { min: 8, max: 128 },
+  /** Guards the E2E key backup, which the API holds: it must survive offline guessing. */
+  recoveryPassword: { min: 12, max: 128 },
   displayName: { min: 1, max: 64 },
   email: { max: 255 },
   serverName: { min: 2, max: 100 },

@@ -23,6 +23,23 @@ export const changeEmailSchema = z.object({
   currentPassword: z.string().min(1, "Informe a senha atual"),
 });
 
+export const unlockKeysSchema = z.object({
+  password: z.string().min(1, "Informe a senha de recuperação"),
+});
+
+export const recoveryPasswordSchema = z
+  .object({
+    password: z
+      .string()
+      .min(LIMITS.recoveryPassword.min, `Mínimo de ${LIMITS.recoveryPassword.min} caracteres`)
+      .max(LIMITS.recoveryPassword.max),
+    confirmPassword: z.string(),
+  })
+  .refine((values) => values.password === values.confirmPassword, {
+    message: "As senhas não conferem",
+    path: ["confirmPassword"],
+  });
+
 export const changePasswordSchema = z
   .object({
     currentPassword: z.string().min(1, "Informe a senha atual"),

@@ -108,13 +108,38 @@ export async function updateAvatar(userId: string, file: ImageFile) {
 /**
  * Publishing a key deactivates the previous one in the same transaction: the partial unique
  * index (one_active_key_per_user) rejects two active rows, and old rows stay so messages
- * encrypted for them keep their reference.
+ * encrypted for them keep their reference. Republishing the active key only attaches the backup:
+ * rotating would cut peers off a key that did not change.
  */
-export async function publishKey(userId: string, { publicKey, algorithm }: PublishKeyInput) {
+export async function publishKey(userId: string, { publicKey, algorithm, backup }: PublishKeyInput) {
+  const backupData = backup && {
+    encryptedPrivateKey: backup.encryptedPrivateKey,
+    backupSalt: backup.salt,
+    backupIv: backup.iv,
+  };
   return prisma.$transaction(async (tx) => {
+    const active = await tx.userKey.findFirst({ where: { userId, isActive: true } });
+    if (active?.publicKey === publicKey) {
+      return backupData ? tx.userKey.update({ where: { id: active.id }, data: backupData }) : active;
+    }
     await tx.userKey.updateMany({ where: { userId, isActive: true }, data: { isActive: false } });
-    return tx.userKey.create({ data: { userId, publicKey, algorithm } });
+    return tx.userKey.create({ data: { userId, publicKey, algorithm, ...backupData } });
   });
+}
+
+/** The owner's active key with its encrypted backup (null if none). Never served to peers. */
+export async function getKeyBackup(userId: string) {
+  const key = await prisma.userKey.findFirst({ where: { userId, isActive: true } });
+  if (!key) throw new HttpError(404, "User has no published key");
+  const { encryptedPrivateKey, backupSalt, backupIv } = key;
+  return {
+    publicKey: key.publicKey,
+    algorithm: key.algorithm,
+    backup:
+      encryptedPrivateKey && backupSalt && backupIv
+        ? { encryptedPrivateKey, salt: backupSalt, iv: backupIv }
+        : null,
+  };
 }
 
 /** Other modules and peers read the active public key through here. 404 until the user publishes one. */

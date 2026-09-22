@@ -4,7 +4,7 @@ import { jest } from "@jest/globals";
 const mock = () => jest.fn<(...args: any[]) => any>();
 
 const user = { findUnique: mock(), findMany: mock(), update: mock(), count: mock() };
-const userKey = { findFirst: mock(), create: mock(), updateMany: mock() };
+const userKey = { findFirst: mock(), create: mock(), updateMany: mock(), update: mock() };
 const $transaction = jest.fn(async (fn: any) => fn({ userKey }));
 const store = jest.fn<(...args: unknown[]) => Promise<string>>();
 const remove = jest.fn<(key: string) => Promise<void>>();
@@ -176,6 +176,7 @@ describe("publishKey", () => {
   };
 
   it("deactivates the previous key before storing the new one", async () => {
+    userKey.findFirst.mockResolvedValue({ ...keyRow, publicKey: "b2xkLWtleQ==" });
     userKey.create.mockResolvedValue(keyRow);
 
     await users.publishKey(USER_ID, { publicKey: "c3BraQ==", algorithm: "ECDH-P256" });
@@ -190,6 +191,7 @@ describe("publishKey", () => {
   });
 
   it("stores only the public half", async () => {
+    userKey.findFirst.mockResolvedValue(null);
     userKey.create.mockResolvedValue(keyRow);
 
     await users.publishKey(USER_ID, { publicKey: "c3BraQ==", algorithm: "ECDH-P256" });
@@ -211,6 +213,80 @@ describe("publishKey", () => {
 
     await expect(users.getActiveKey(USER_ID)).resolves.toMatchObject({ publicKey: "c3BraQ==" });
     expect(userKey.findFirst).toHaveBeenCalledWith({ where: { userId: USER_ID, isActive: true } });
+  });
+
+  const backup = { encryptedPrivateKey: "Y2lwaGVy", salt: "c2FsdA==", iv: "aXY=" };
+
+  it("stores the encrypted backup with a new key", async () => {
+    userKey.findFirst.mockResolvedValue(null);
+    userKey.create.mockResolvedValue(keyRow);
+
+    await users.publishKey(USER_ID, { publicKey: "c3BraQ==", algorithm: "ECDH-P256", backup });
+
+    expect(userKey.create).toHaveBeenCalledWith({
+      data: {
+        userId: USER_ID,
+        publicKey: "c3BraQ==",
+        algorithm: "ECDH-P256",
+        encryptedPrivateKey: "Y2lwaGVy",
+        backupSalt: "c2FsdA==",
+        backupIv: "aXY=",
+      },
+    });
+  });
+
+  it("attaches a backup to the active key without rotating it, so peers keep the same key", async () => {
+    userKey.findFirst.mockResolvedValue(keyRow);
+    userKey.update.mockResolvedValue(keyRow);
+
+    await users.publishKey(USER_ID, { publicKey: "c3BraQ==", algorithm: "ECDH-P256", backup });
+
+    expect(userKey.update).toHaveBeenCalledWith({
+      where: { id: "key-1" },
+      data: { encryptedPrivateKey: "Y2lwaGVy", backupSalt: "c2FsdA==", backupIv: "aXY=" },
+    });
+    expect(userKey.updateMany).not.toHaveBeenCalled();
+    expect(userKey.create).not.toHaveBeenCalled();
+  });
+
+  it("never hands the encrypted private key to peers", async () => {
+    userKey.findFirst.mockResolvedValue({ ...keyRow, encryptedPrivateKey: "Y2lwaGVy", backupSalt: "c2FsdA==", backupIv: "aXY=" });
+
+    const key = await users.getActiveKey(USER_ID);
+
+    expect(JSON.stringify(key)).not.toMatch(/Y2lwaGVy|c2FsdA==|private/i);
+  });
+});
+
+describe("getKeyBackup", () => {
+  it("returns the owner's active key with its backup", async () => {
+    userKey.findFirst.mockResolvedValue({
+      userId: USER_ID,
+      publicKey: "c3BraQ==",
+      algorithm: "ECDH-P256",
+      encryptedPrivateKey: "Y2lwaGVy",
+      backupSalt: "c2FsdA==",
+      backupIv: "aXY=",
+    });
+
+    await expect(users.getKeyBackup(USER_ID)).resolves.toEqual({
+      publicKey: "c3BraQ==",
+      algorithm: "ECDH-P256",
+      backup: { encryptedPrivateKey: "Y2lwaGVy", salt: "c2FsdA==", iv: "aXY=" },
+    });
+    expect(userKey.findFirst).toHaveBeenCalledWith({ where: { userId: USER_ID, isActive: true } });
+  });
+
+  it("reports no backup for a key published without one", async () => {
+    userKey.findFirst.mockResolvedValue({ publicKey: "c3BraQ==", algorithm: "ECDH-P256", encryptedPrivateKey: null });
+
+    await expect(users.getKeyBackup(USER_ID)).resolves.toMatchObject({ backup: null });
+  });
+
+  it("404s when the user has no key yet", async () => {
+    userKey.findFirst.mockResolvedValue(null);
+
+    await expect(users.getKeyBackup(USER_ID)).rejects.toMatchObject({ status: 404 });
   });
 });
 

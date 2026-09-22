@@ -48,6 +48,10 @@ export async function publishKey(req: Request, res: Response) {
   res.status(201).json({ publicKey: key.publicKey, algorithm: key.algorithm, createdAt: key.createdAt });
 }
 
+export async function getKeyBackup(req: Request, res: Response) {
+  res.json(await usersService.getKeyBackup(req.auth!.sub));
+}
+
 export async function getKey(req: Request, res: Response) {
   const { userId } = userIdSchema.parse(req.params);
   res.json(await usersService.getActiveKey(userId));

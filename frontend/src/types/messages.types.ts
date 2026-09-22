@@ -86,6 +86,28 @@ export type ChatRow = ChatMessage & { first: boolean; day: string | null };
 
 export type PublishedKey = { publicKey: string; algorithm: string };
 
+/** The private key encrypted under the recovery password, all base64. Opaque to the API. */
+export type KeyBackup = { encryptedPrivateKey: string; salt: string; iv: string };
+
+export type OwnKey = PublishedKey & { backup: KeyBackup | null };
+
+/**
+ * restore: unlock the backup of the published key. create: back up a brand new key.
+ * upgrade: this browser's key cannot be read out, so backing up means replacing it.
+ */
+export type KeyPromptKind = "restore" | "create" | "upgrade";
+
+/** The recovery-password dialog currently asked for by the E2E layer. */
+export type KeyPrompt = {
+  kind: KeyPromptKind;
+  /** Throws (dialog stays open) on a wrong password or a failed request. */
+  submit: (password: string) => Promise<void>;
+  /** The explicit "not now" / "forgot it" button. */
+  skip: () => void;
+  /** Esc or the close button: ask again next time. */
+  dismiss: () => void;
+};
+
 export type Conversation = {
   peer: UserProfile;
   lastMessageAt: string;

@@ -3,6 +3,7 @@ import { ROUTES } from "../constants/routes";
 import { useAuth } from "../hooks/useAuth";
 import { Sidebar } from "../components/shell/Sidebar";
 import { TopBar } from "../components/shell/TopBar";
+import { KeyBackupDialog } from "../components/chat/KeyBackupDialog";
 
 /** Logged-in area: renders nothing while the session resolves, sends guests to sign-in. */
 export function RootLayout() {
@@ -21,6 +22,7 @@ export function RootLayout() {
           <Outlet />
         </main>
       </div>
+      <KeyBackupDialog />
     </div>
   );
 }

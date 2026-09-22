@@ -2,13 +2,20 @@
  * E2E primitives, Web Crypto only (arquitetura-lucaco.md §7): ECDH P-256 to agree on a secret,
  * HKDF-SHA-256 to turn it into an AES-GCM 256 key, a fresh random IV per message. The private
  * key is a non-extractable CryptoKey kept in IndexedDB: script can use it, never read it out.
+ * The one readable copy is the PKCS8 export at creation, encrypted under a recovery password
+ * (PBKDF2) and parked on the API so another browser can restore the same keypair.
  */
+
+import type { KeyBackup } from "../types/messages.types";
 
 const DB_NAME = "lucaco-e2e";
 const STORE = "keys";
 const DM_INFO = "lucaco-dm-v1";
 /** Separate HKDF label: the key that wraps channel keys is never the DM key of the same pair. */
 const WRAP_INFO = "lucaco-channel-wrap-v1";
+const ECDH = { name: "ECDH", namedCurve: "P-256" } as const;
+/** OWASP 2023 figure for PBKDF2-SHA256: the backup sits on the server, open to offline guessing. */
+const PBKDF2_ITERATIONS = 600_000;
 
 const toBase64 = (bytes: ArrayBuffer | Uint8Array) =>
   btoa(String.fromCharCode(...new Uint8Array(bytes)));
@@ -28,13 +35,52 @@ function idb<T>(mode: IDBTransactionMode, run: (store: IDBObjectStore) => IDBReq
   });
 }
 
-/** This browser's keypair for `userId`, created on first use. */
-export async function loadKeyPair(userId: string) {
-  const stored = await idb<CryptoKeyPair | undefined>("readonly", (s) => s.get(userId));
-  if (stored) return stored;
-  // extractable=false applies to the private key; the public half is always exportable.
-  const pair = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, false, ["deriveBits"]);
-  await idb("readwrite", (s) => s.put(pair, userId));
+/** This browser's keypair for `userId`, if it has one. */
+export const getStoredKeyPair = (userId: string) =>
+  idb<CryptoKeyPair | undefined>("readonly", (s) => s.get(userId));
+
+export const saveKeyPair = (userId: string, pair: CryptoKeyPair) => idb("readwrite", (s) => s.put(pair, userId));
+
+const importPrivateKey = (pkcs8: BufferSource) => crypto.subtle.importKey("pkcs8", pkcs8, ECDH, false, ["deriveBits"]);
+
+/**
+ * A fresh keypair plus its private half as PKCS8, readable only here: the pair returned (and
+ * stored) holds a non-extractable re-import, so the key cannot be read out afterwards.
+ */
+export async function createKeyPair() {
+  const fresh = await crypto.subtle.generateKey(ECDH, true, ["deriveBits"]);
+  const pkcs8 = await crypto.subtle.exportKey("pkcs8", fresh.privateKey);
+  const pair: CryptoKeyPair = { publicKey: fresh.publicKey, privateKey: await importPrivateKey(pkcs8) };
+  return { pair, pkcs8 };
+}
+
+async function passwordKey(password: string, salt: BufferSource) {
+  const base = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey(
+    { name: "PBKDF2", hash: "SHA-256", salt, iterations: PBKDF2_ITERATIONS },
+    base,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt", "decrypt"],
+  );
+}
+
+/** The private key sealed under the recovery password: the shape `PUT /users/me/keys` takes as `backup`. */
+export async function encryptPrivateKey(pkcs8: ArrayBuffer, password: string): Promise<KeyBackup> {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const { data, iv } = await encryptBytes(await passwordKey(password, salt), pkcs8);
+  return { encryptedPrivateKey: toBase64(data), salt: toBase64(salt), iv };
+}
+
+/** The backed-up keypair, or null on a wrong password (GCM refuses instead of returning junk). */
+export async function decryptKeyPair(backup: KeyBackup, publicKey: string, password: string) {
+  const key = await passwordKey(password, fromBase64(backup.salt));
+  const pkcs8 = await decryptBytes(key, fromBase64(backup.encryptedPrivateKey), backup.iv);
+  if (!pkcs8) return null;
+  const pair: CryptoKeyPair = {
+    publicKey: await crypto.subtle.importKey("spki", fromBase64(publicKey), ECDH, true, []),
+    privateKey: await importPrivateKey(pkcs8),
+  };
   return pair;
 }
 
@@ -84,7 +130,7 @@ export async function encryptBytes(key: CryptoKey, data: ArrayBuffer) {
   return { data: await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, data), iv: toBase64(iv) };
 }
 
-export async function decryptBytes(key: CryptoKey, data: ArrayBuffer, iv: string) {
+export async function decryptBytes(key: CryptoKey, data: BufferSource, iv: string) {
   try {
     return await crypto.subtle.decrypt({ name: "AES-GCM", iv: fromBase64(iv) }, key, data);
   } catch {

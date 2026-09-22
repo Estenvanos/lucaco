@@ -17,6 +17,18 @@ export const publishKeySchema = z.object({
     .min(40)
     .max(512),
   algorithm: z.literal("ECDH-P256").default("ECDH-P256"),
+  /**
+   * Optional backup of the private half, already encrypted in the browser with a recovery
+   * password the API never receives. Opaque to the server; bounds are sanity limits
+   * (P-256 PKCS8 + GCM tag is ~208 base64 chars, salt 16 bytes, IV 12 bytes).
+   */
+  backup: z
+    .object({
+      encryptedPrivateKey: z.string().base64().min(40).max(1024),
+      salt: z.string().base64().min(16).max(64),
+      iv: z.string().base64().min(16).max(64),
+    })
+    .optional(),
 });
 
 export type PublishKeyInput = z.infer<typeof publishKeySchema>;

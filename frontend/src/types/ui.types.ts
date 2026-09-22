@@ -1,7 +1,7 @@
 import type { ButtonHTMLAttributes, ChangeEvent, FormEvent, InputHTMLAttributes, KeyboardEvent, ReactNode } from "react";
 import type { ZodForm } from "./form.types";
 import type { AddFriendInput, FriendsTab, PublicFriendship } from "./friends.types";
-import type { Attacher, AttachmentRef, AudioRef, ChatRow, Conversation, VoiceRecorder } from "./messages.types";
+import type { Attacher, AttachmentRef, AudioRef, ChatRow, Conversation, KeyPrompt, VoiceRecorder } from "./messages.types";
 import type { SettingsSection, UserProfile } from "./users.types";
 import type { AppNotification } from "./notifications.types";
 import type { PasswordStrength } from "./password.types";
@@ -40,6 +40,8 @@ export type AuthFormFooterProps = { question: string; to: string; action: string
 
 /** A viewport point, in px. */
 export type Point = { x: number; y: number };
+
+export type KeyPasswordDialogProps = { prompt: KeyPrompt };
 
 export type ModalProps = {
   title: string;

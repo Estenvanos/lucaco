@@ -14,6 +14,7 @@ export const ENDPOINTS = {
     status: "/users/me/status",
     settings: "/users/me/settings",
     myKey: "/users/me/keys",
+    keyBackup: "/users/me/key-backup",
     key: (userId: string) => `/users/${userId}/key`,
     mute: (userId: string) => `/users/me/mutes/${userId}`,
   },
