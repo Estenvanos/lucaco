@@ -8,10 +8,14 @@ export const LIMITS = {
   serverDescription: { max: 300 },
   channelName: { max: 100 },
   channelTopic: { max: 1024 },
+  /** People allowed in a voice call at once. */
+  voiceUsers: { min: 1, max: 12 },
   /** Voice messages: the recorder stops by itself at this length. The API caps files at 5 MB. */
   voiceMessageMs: 2 * 60 * 1000,
   friendRequestMessage: { max: 120 },
   /** Plaintext cap: the ciphertext (base64 + GCM tag) must fit the API's 8 KiB limit. */
   messageText: { max: 2000 },
   imageMaxBytes: 5 * 1024 * 1024,
+  /** Chat attachments by kind (mirrors MEDIA_MAX_BYTES in the API). */
+  attachmentBytes: { image: 15 * 1024 * 1024, file: 30 * 1024 * 1024, video: 100 * 1024 * 1024 },
 } as const;

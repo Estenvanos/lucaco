@@ -1,53 +1,46 @@
+import { Room, RoomEvent, Track, type RemoteParticipant, type RemoteTrack, type RemoteTrackPublication } from "livekit-client";
 import type { Socket } from "socket.io-client";
 import { SOCKET_EVENTS } from "./constants/socket-events";
-import type { CallEvents, Peer, PeerInfo, Signal } from "./types/voice.types";
+import type { CallEvents, PeerInfo } from "./types/voice.types";
 
-// ponytail: STUN only, ~1/5 of users behind strict NAT will fail. Add coturn (TURN) before real users.
-const ICE_SERVERS: RTCIceServer[] = [{ urls: "stun:stun.l.google.com:19302" }];
+// 1080p30 at ~4 Mbps: with the SFU the streamer uploads this once, whatever the viewer count.
+// ponytail: fixed quality; add a picker (720p/1080p, "motion" contentHint) if uploads start to choke.
+const SCREEN = { width: 1920, height: 1080, frameRate: 30, maxBitrate: 4_000_000 };
 
-// ponytail: fixed 720p30 so the mesh (one encode + one upload per peer) does not choke.
-// Higher presets and a "smooth" mode (motion hint + maintain-framerate) need the mediasoup SFU first.
-const SCREEN = { width: 1280, height: 720, frameRate: 30, maxBitrate: 2_500_000 };
-// Best screen codecs first (static regions cost far less than in VP8); the browser falls back on its own.
-const SCREEN_CODECS = ["video/VP9", "video/H264"];
-const STATS_INTERVAL_MS = 5_000;
+const isScreen = (source: Track.Source) => source === Track.Source.ScreenShare || source === Track.Source.ScreenShareAudio;
 
 /**
- * P2P mesh call: one RTCPeerConnection per peer, signaling through Socket.IO.
- * Uses "perfect negotiation" so renegotiation (starting/stopping screen share) works from either side.
+ * Voice call over a LiveKit SFU: one connection to the server instead of one per peer.
+ * Socket.IO stays the source of truth for who is in the room, who shares and who watches;
+ * LiveKit only carries the media. Participant identity = socket id (set in the join token).
  */
 export class Call {
-  private peers = new Map<string, Peer>();
-  private mic: MediaStream | null = null;
+  private room: Room | null = null;
+  private peers = new Map<string, PeerInfo>();
   private screen: MediaStream | null = null;
-  /** Peers that asked to watch the share: the tab is only sent to them. */
-  private viewers = new Set<string>();
-  private statsTimer: number | null = null;
+  /** Socket id of the stream this tab watches: screen tracks are only subscribed for it. */
+  private watching: string | null = null;
+  private muted = false;
+  /** One MediaStream per "<socketId>:mic" or "<socketId>:screen" (tab video + tab audio together). */
+  private remote = new Map<string, MediaStream>();
 
   constructor(
     private socket: Socket,
     private events: CallEvents,
   ) {
-    socket.on(SOCKET_EVENTS.voicePeerJoined, (info: PeerInfo) => this.addPeer(info));
+    socket.on(SOCKET_EVENTS.voicePeerJoined, (info: PeerInfo) => {
+      this.peers.set(info.socketId, info);
+      this.emitPeers();
+    });
     socket.on(SOCKET_EVENTS.voicePeerLeft, ({ socketId }: { socketId: string }) => this.removePeer(socketId));
     socket.on(SOCKET_EVENTS.voiceScreen, ({ socketId, sharing }: { socketId: string; sharing: boolean }) => {
       const peer = this.peers.get(socketId);
       if (!peer) return;
       peer.sharing = sharing;
+      if (!sharing && this.watching === socketId) this.watching = null;
       this.emitPeers();
       if (sharing) this.events.onStatus(`${peer.username} começou a compartilhar a aba`);
     });
-    socket.on(SOCKET_EVENTS.voiceViewer, ({ socketId, watching }: { socketId: string; watching: boolean }) => {
-      const pc = this.peers.get(socketId)?.pc;
-      if (watching) {
-        this.viewers.add(socketId);
-        if (pc) this.addScreenTracks(pc);
-      } else {
-        this.viewers.delete(socketId);
-        if (pc) this.removeScreenTracks(pc);
-      }
-    });
-    socket.on(SOCKET_EVENTS.voiceSignal, (signal: Signal) => this.handleSignal(signal).catch(console.error));
   }
 
   get sharing() {
@@ -58,44 +51,59 @@ export class Call {
   canSpeak = true;
 
   get micStream() {
-    return this.mic;
+    const track = this.room?.localParticipant.getTrackPublication(Track.Source.Microphone)?.track;
+    return track ? new MediaStream([track.mediaStreamTrack]) : null;
   }
 
   async join(channelId: string, audioInputId: string | null = null) {
-    this.mic = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        ...(audioInputId && { deviceId: { exact: audioInputId } }),
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-      },
-      video: false,
-    });
     const res = await this.socket.emitWithAck(SOCKET_EVENTS.voiceJoin, { channelId });
-    if (res.error) {
-      this.stopMic();
-      throw new Error(res.error);
-    }
-    // Without SPEAK the mic stays off: the track is muted before any peer receives it.
+    if (res.error) throw new Error(res.error);
     this.canSpeak = res.canSpeak !== false;
-    if (!this.canSpeak) for (const track of this.mic.getAudioTracks()) track.enabled = false;
-    for (const info of res.peers as PeerInfo[]) this.addPeer(info);
+    this.muted = false;
+    for (const info of res.peers as PeerInfo[]) this.peers.set(info.socketId, info);
+
+    // ponytail: no adaptiveStream — it pauses video that has no element attached through
+    // track.attach(), and VoiceStage plays the MediaStreams itself.
+    const room = new Room({ dynacast: true });
+    this.bind(room);
+    this.room = room;
+    try {
+      await room.connect(res.livekit.url, res.livekit.token, { autoSubscribe: false });
+      // Without SPEAK the token cannot publish audio: the mic is never opened.
+      if (this.canSpeak) {
+        await room.localParticipant.setMicrophoneEnabled(true, {
+          ...(audioInputId && { deviceId: { exact: audioInputId } }),
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        });
+      }
+    } catch (err) {
+      await this.leave();
+      throw err;
+    }
+    for (const participant of room.remoteParticipants.values()) this.syncParticipant(participant);
     this.emitPeers();
   }
 
   async leave() {
     this.stopShare();
+    const room = this.room;
+    this.room = null; // before disconnect(), so the Disconnected handler stays quiet
     for (const id of [...this.peers.keys()]) this.removePeer(id);
-    this.stopMic();
+    this.remote.clear();
+    this.watching = null;
+    await room?.disconnect();
     await this.socket.emitWithAck(SOCKET_EVENTS.voiceLeave, {});
   }
 
   toggleMute() {
-    const track = this.mic?.getAudioTracks()[0];
-    if (!track) return false;
     if (!this.canSpeak) return true;
-    track.enabled = !track.enabled;
-    return !track.enabled;
+    const mic = this.room?.localParticipant.getTrackPublication(Track.Source.Microphone);
+    if (!mic) return false;
+    this.muted = !this.muted;
+    void (this.muted ? mic.mute() : mic.unmute());
+    return this.muted;
   }
 
   /** Native OS capture via getDisplayMedia, restricted to a browser tab + that tab's audio. */
@@ -121,50 +129,45 @@ export class Call {
       stream.getTracks().forEach((t) => t.stop());
       throw new Error("Compartilhe uma ABA do navegador (janela/tela não são permitidas).");
     }
-    if (!stream.getAudioTracks().length) {
+    const audio = stream.getAudioTracks()[0];
+    if (!audio) {
       this.events.onStatus("Sem áudio: marque 'compartilhar áudio da aba' para transmitir com som.");
     }
 
     video.contentHint = "detail";
     video.addEventListener("ended", () => this.stopShare()); // "Stop sharing" button of the browser
-    this.screen = stream; // sent to nobody yet: each viewer opts in through voice:viewer
+    this.screen = stream;
     this.events.onStream("local-screen", stream, "Você (aba)");
-    const response = await this.socket.emitWithAck(SOCKET_EVENTS.voiceScreen, { sharing: true });
-    if (response.error) {
+    try {
+      const response = await this.socket.emitWithAck(SOCKET_EVENTS.voiceScreen, { sharing: true });
+      if (response.error) throw new Error(response.error);
+      const local = this.room?.localParticipant;
+      if (!local) throw new Error("Entre no canal de voz antes de transmitir");
+      // The SFU replicates this one upload to every viewer; the token must grant STREAM.
+      await local.publishTrack(video, {
+        source: Track.Source.ScreenShare,
+        // VP9 compresses screen content far better than VP8 and is published as SVC (L3T3_KEY by
+        // default): one encode carrying 1080p/540p/270p layers, so the SFU sends each viewer the layer
+        // their connection holds. LiveKit adds a simulcast VP8 backup for browsers that cannot decode VP9.
+        videoCodec: "vp9",
+        screenShareEncoding: { maxBitrate: SCREEN.maxBitrate, maxFramerate: SCREEN.frameRate },
+        degradationPreference: "maintain-resolution", // sharp text: drop frames, keep the resolution
+      });
+      if (audio) await local.publishTrack(audio, { source: Track.Source.ScreenShareAudio });
+    } catch (err) {
       this.stopShare();
-      throw new Error(response.error);
-    }
-    this.statsTimer = window.setInterval(() => this.logScreenStats(), STATS_INTERVAL_MS);
-  }
-
-  /**
-   * One line per peer with what actually limits the share: `qualityLimitationReason` is
-   * "bandwidth" (raise/lower maxBitrate, or too many peers), "cpu" (encoder too slow) or "none".
-   */
-  private async logScreenStats() {
-    for (const peer of this.peers.values()) {
-      const stats = await peer.pc.getStats();
-      for (const s of stats.values()) {
-        if (s.type !== "outbound-rtp" || s.kind !== "video") continue;
-        const codec = stats.get(s.codecId)?.mimeType ?? "?";
-        console.log(
-          `[screen->${peer.username}] ${s.frameWidth}x${s.frameHeight}@${s.framesPerSecond ?? 0}fps ` +
-            `${Math.round((s.targetBitrate ?? 0) / 1000)}kbps ${codec} limit=${s.qualityLimitationReason}`,
-        );
-      }
+      throw err;
     }
   }
 
   stopShare() {
-    if (this.statsTimer !== null) {
-      clearInterval(this.statsTimer);
-      this.statsTimer = null;
-    }
-    if (!this.screen) return;
-    for (const { pc } of this.peers.values()) this.removeScreenTracks(pc);
-    this.screen.getTracks().forEach((t) => t.stop());
+    const screen = this.screen;
+    if (!screen) return;
     this.screen = null;
-    this.viewers.clear();
+    for (const track of screen.getTracks()) {
+      void this.room?.localParticipant.unpublishTrack(track).catch(() => {}); // never published if startShare failed
+      track.stop();
+    }
     this.events.onStream("local-screen", null, "");
     this.socket.emit(SOCKET_EVENTS.voiceScreen, { sharing: false });
   }
@@ -172,135 +175,76 @@ export class Call {
   async watchStream(socketId: string) {
     const res = await this.socket.emitWithAck(SOCKET_EVENTS.voiceStreamWatch, { socketId });
     if (res.error) throw new Error(res.error);
+    this.setWatching(socketId);
   }
 
   unwatchStream() {
     this.socket.emit(SOCKET_EVENTS.voiceStreamUnwatch, {});
+    this.setWatching(null);
   }
 
-  private addScreenTracks(pc: RTCPeerConnection) {
-    const screen = this.screen;
-    if (!screen) return;
-    const sending = pc.getSenders().map((s) => s.track);
-    for (const track of screen.getTracks()) {
-      if (sending.includes(track)) continue;
-      const sender = pc.addTrack(track, screen);
-      if (track.kind === "video") this.tuneScreenSender(pc, sender);
+  private bind(room: Room) {
+    room
+      .on(RoomEvent.TrackPublished, (publication, participant) => this.syncTrack(publication, participant))
+      .on(RoomEvent.TrackSubscribed, (track, publication, participant) => this.addTrack(track, publication, participant))
+      .on(RoomEvent.TrackUnsubscribed, (track, publication, participant) => this.dropTrack(track, publication, participant))
+      .on(RoomEvent.Reconnecting, () => this.events.onStatus("Reconectando ao servidor de mídia..."))
+      .on(RoomEvent.Reconnected, () => this.events.onStatus("Conectado ao canal de voz"))
+      .on(RoomEvent.Disconnected, () => {
+        if (this.room === room) this.events.onStatus("Desconectado do servidor de mídia");
+      });
+  }
+
+  /** Microphones are always heard; a screen is only received while its owner is being watched. */
+  private syncTrack(publication: RemoteTrackPublication, participant: RemoteParticipant) {
+    const wanted =
+      publication.source === Track.Source.Microphone || (isScreen(publication.source) && this.watching === participant.identity);
+    if (wanted !== publication.isDesired) publication.setSubscribed(wanted);
+  }
+
+  private syncParticipant(participant: RemoteParticipant) {
+    for (const publication of participant.trackPublications.values()) this.syncTrack(publication, participant);
+  }
+
+  private setWatching(socketId: string | null) {
+    const previous = this.watching;
+    this.watching = socketId;
+    for (const id of [previous, socketId]) {
+      const participant = id ? this.room?.remoteParticipants.get(id) : undefined;
+      if (participant) this.syncParticipant(participant);
     }
   }
 
-  private removeScreenTracks(pc: RTCPeerConnection) {
-    const tracks = this.screen?.getTracks() ?? [];
-    for (const sender of pc.getSenders()) {
-      if (sender.track && tracks.includes(sender.track)) pc.removeTrack(sender);
-    }
+  private streamOf(publication: RemoteTrackPublication, participant: RemoteParticipant) {
+    const screen = isScreen(publication.source);
+    const name = this.peers.get(participant.identity)?.username ?? participant.name ?? participant.identity;
+    return { key: `${participant.identity}:${screen ? "screen" : "mic"}`, label: screen ? `${name} (aba)` : name };
   }
 
-  /** Caps bitrate/framerate and prefers a screen-friendly codec; without this the browser default (~2.5 Mbps VP8) applies. */
-  private tuneScreenSender(pc: RTCPeerConnection, sender: RTCRtpSender) {
-    const transceiver = pc.getTransceivers().find((t) => t.sender === sender);
-    const codecs = RTCRtpSender.getCapabilities("video")?.codecs ?? [];
-    if (transceiver && codecs.length) {
-      const rank = (c: RTCRtpCodec) => {
-        const i = SCREEN_CODECS.indexOf(c.mimeType);
-        return i === -1 ? SCREEN_CODECS.length : i;
-      };
-      transceiver.setCodecPreferences([...codecs].sort((a, b) => rank(a) - rank(b)));
-    }
-
-    const params = sender.getParameters();
-    if (!params.encodings?.length) params.encodings = [{}];
-    params.encodings[0].maxBitrate = SCREEN.maxBitrate;
-    params.encodings[0].maxFramerate = SCREEN.frameRate;
-    params.degradationPreference = "maintain-resolution"; // sharp text: drop frames, keep 720p
-    sender.setParameters(params).catch((err) => console.warn("screen sender params rejected", err));
+  private addTrack(track: RemoteTrack, publication: RemoteTrackPublication, participant: RemoteParticipant) {
+    const { key, label } = this.streamOf(publication, participant);
+    const stream = this.remote.get(key) ?? new MediaStream();
+    this.remote.set(key, stream);
+    stream.addTrack(track.mediaStreamTrack);
+    this.events.onStream(key, stream, label);
   }
 
-  private addPeer(info: PeerInfo) {
-    if (this.peers.has(info.socketId) || !this.mic) return;
-    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
-    const peer: Peer = {
-      ...info,
-      pc,
-      polite: this.socket.id! < info.socketId,
-      makingOffer: false,
-      ignoreOffer: false,
-    };
-    this.peers.set(info.socketId, peer);
-
-    const mic = this.mic;
-    mic.getTracks().forEach((t) => pc.addTrack(t, mic));
-    if (this.viewers.has(info.socketId)) this.addScreenTracks(pc);
-
-    pc.onicecandidate = ({ candidate }) => {
-      if (candidate) this.socket.emit(SOCKET_EVENTS.voiceSignal, { to: info.socketId, candidate: candidate.toJSON() });
-    };
-
-    pc.onnegotiationneeded = async () => {
-      try {
-        peer.makingOffer = true;
-        await pc.setLocalDescription();
-        this.socket.emit(SOCKET_EVENTS.voiceSignal, { to: info.socketId, description: pc.localDescription });
-      } catch (err) {
-        console.error(err);
-      } finally {
-        peer.makingOffer = false;
-      }
-    };
-
-    // Each remote MediaStream (mic, or tab video + tab audio) becomes one <video> element.
-    pc.ontrack = ({ track, streams: [stream] }) => {
-      const key = `${info.socketId}:${stream.id}`;
-      const label = stream.getVideoTracks().length || track.kind === "video" ? `${info.username} (aba)` : info.username;
-      const update = () => this.events.onStream(key, stream.getTracks().length ? stream : null, label);
-      stream.onremovetrack = update;
-      update();
-    };
-
-    pc.onconnectionstatechange = () => {
-      if (pc.connectionState === "failed") this.events.onStatus(`Conexão com ${info.username} falhou (NAT?)`);
-    };
-
-    this.emitPeers();
+  private dropTrack(track: RemoteTrack, publication: RemoteTrackPublication, participant: RemoteParticipant) {
+    const { key, label } = this.streamOf(publication, participant);
+    const stream = this.remote.get(key);
+    if (!stream) return;
+    stream.removeTrack(track.mediaStreamTrack);
+    if (stream.getTracks().length) return this.events.onStream(key, stream, label);
+    this.remote.delete(key);
+    this.events.onStream(key, null, "");
   }
 
   private removePeer(socketId: string) {
-    const peer = this.peers.get(socketId);
-    if (!peer) return;
-    for (const receiver of peer.pc.getReceivers()) receiver.track.stop();
-    peer.pc.close();
-    this.peers.delete(socketId);
+    if (!this.peers.delete(socketId)) return;
+    for (const key of [...this.remote.keys()]) if (key.startsWith(`${socketId}:`)) this.remote.delete(key);
+    if (this.watching === socketId) this.watching = null;
     this.events.onStream(socketId, null, ""); // prefix: removes every stream of this peer
     this.emitPeers();
-  }
-
-  private async handleSignal({ from, description, candidate }: Signal) {
-    const peer = this.peers.get(from);
-    if (!peer) return;
-    const { pc } = peer;
-
-    if (description) {
-      const collision = description.type === "offer" && (peer.makingOffer || pc.signalingState !== "stable");
-      peer.ignoreOffer = !peer.polite && collision;
-      if (peer.ignoreOffer) return;
-
-      await pc.setRemoteDescription(description);
-      if (description.type === "offer") {
-        await pc.setLocalDescription();
-        this.socket.emit(SOCKET_EVENTS.voiceSignal, { to: from, description: pc.localDescription });
-      }
-    } else if (candidate) {
-      try {
-        await pc.addIceCandidate(candidate);
-      } catch (err) {
-        if (!peer.ignoreOffer) throw err;
-      }
-    }
-  }
-
-  private stopMic() {
-    this.mic?.getTracks().forEach((t) => t.stop());
-    this.mic = null;
   }
 
   private emitPeers() {

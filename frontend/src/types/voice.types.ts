@@ -3,19 +3,6 @@ import type { ChatPerson } from "./ui.types";
 /** `viewing`: socket id of the stream this peer is watching, or null. */
 export type PeerInfo = { socketId: string; userId: string; username: string; sharing: boolean; viewing: string | null };
 
-export type Signal = {
-  from: string;
-  description?: RTCSessionDescriptionInit;
-  candidate?: RTCIceCandidateInit;
-};
-
-export type Peer = PeerInfo & {
-  pc: RTCPeerConnection;
-  polite: boolean;
-  makingOffer: boolean;
-  ignoreOffer: boolean;
-};
-
 export type CallEvents = {
   onPeersChange: (peers: PeerInfo[]) => void;
   onStream: (key: string, stream: MediaStream | null, label: string) => void;

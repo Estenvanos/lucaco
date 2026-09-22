@@ -61,6 +61,24 @@ export function ChannelSettingsForm(props: ChannelSettingsFormProps) {
                 />
               </label>
             )}
+            {type === "voice" && (
+              <label className="field">
+                <span>Limite de pessoas na chamada</span>
+                <div className="field-control">
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min={LIMITS.voiceUsers.min}
+                    max={LIMITS.voiceUsers.max}
+                    value={settings.userLimit}
+                    aria-invalid={Boolean(settings.userLimitError)}
+                    disabled={!canManageChannel}
+                    onChange={(event) => settings.setUserLimit(event.target.value)}
+                  />
+                </div>
+                <FormError message={settings.userLimitError} />
+              </label>
+            )}
             {channel && type === "text" && canManageChannel && (
               <button
                 type="button"

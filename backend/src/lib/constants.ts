@@ -2,6 +2,9 @@
 
 import type { NotificationTag } from "../generated/prisma/client.js";
 
+/** Most people a voice channel can hold; the per-channel limit (Channel.userLimit) goes up to this. */
+export const VOICE_MAX_USERS = 12;
+
 /** Socket event names. The frontend mirrors this list in constants/socket-events.ts. */
 export const SOCKET_EVENTS = {
   voiceJoin: "voice:join",
@@ -18,6 +21,9 @@ export const SOCKET_EVENTS = {
   voiceViewer: "voice:viewer",
   messageSend: "message:send",
   messageNew: "message:new",
+  messageDelete: "message:delete",
+  /** To everyone who can read the conversation: { id, channelId } left it. */
+  messageDeleted: "message:deleted",
   messageTyping: "message:typing",
   notificationNew: "notification:new",
   notificationRemoved: "notification:removed",
@@ -34,6 +40,8 @@ export const NOTIFICATION_TAGS = {
   friendAccepted: "friend_accepted",
   /** One per sender while unread: the red dot on the friend, cleared when the chat is opened. */
   newMessage: "new_message",
+  /** @name / @todos in a server channel. */
+  mention: "mention",
 } as const satisfies Record<string, NotificationTag>;
 
 /** Refresh cookie: scoped to /auth so it is never sent to the rest of the API. */
@@ -60,6 +68,7 @@ export const PERMISSIONS = {
   MANAGE_CHANNELS: 1n << 10n, // create, edit and delete channels
   SEND_VOICE_MESSAGES: 1n << 11n, // recorded audio in a text channel
   BAN_MEMBERS: 1n << 12n, // remove a member for good
+  ATTACH_FILES: 1n << 13n, // images, documents and videos in a text channel
 } as const;
 
 export type PermissionName = keyof typeof PERMISSIONS;
@@ -76,6 +85,7 @@ export const CHANNEL_PERMISSIONS = [
   "MANAGE_ROLES",
   "SEND_MESSAGES",
   "SEND_VOICE_MESSAGES",
+  "ATTACH_FILES",
   "CONNECT",
   "SPEAK",
   "STREAM",
@@ -86,6 +96,7 @@ export const DEFAULT_PERMISSIONS =
   PERMISSIONS.VIEW_CHANNELS |
   PERMISSIONS.SEND_MESSAGES |
   PERMISSIONS.SEND_VOICE_MESSAGES |
+  PERMISSIONS.ATTACH_FILES |
   PERMISSIONS.CONNECT |
   PERMISSIONS.SPEAK |
   PERMISSIONS.STREAM;

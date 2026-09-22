@@ -47,7 +47,7 @@ describe("join", () => {
     const present = socket("b", { voiceChannelId: "sala", sharing: true });
     const io = server([newcomer], [present]);
 
-    canConnect.mockResolvedValue({ canSpeak: false });
+    canConnect.mockResolvedValue({ canSpeak: false, userLimit: 12 });
 
     const { peers, canSpeak } = await voice.join(io, "a", "user-a", "sala");
 
@@ -73,6 +73,15 @@ describe("join", () => {
     expect(moving.leave).toHaveBeenCalledWith("voice:antiga");
     expect(moving.join).toHaveBeenCalledWith("voice:nova");
     expect(moving.data.voiceChannelId).toBe("nova");
+  });
+
+  it("refuses a newcomer once the channel is at its user limit", async () => {
+    canConnect.mockResolvedValue({ canSpeak: true, userLimit: 1 });
+    const newcomer = socket("a");
+    const io = server([newcomer], [socket("b", { voiceChannelId: "sala" })]);
+
+    await expect(voice.join(io, "a", "user-a", "sala")).rejects.toThrow("lotado");
+    expect(newcomer.join).not.toHaveBeenCalled();
   });
 
   it("does not join an invented or forbidden channel", async () => {

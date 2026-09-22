@@ -50,4 +50,10 @@ export const channelFormSchema = z.object({
     .max(LIMITS.channelTopic.max, `Até ${LIMITS.channelTopic.max} caracteres`)
     .transform((topic) => topic || null)
     .optional(),
+  userLimit: z
+    .number("Informe o limite de pessoas")
+    .int("Informe o limite de pessoas")
+    .min(LIMITS.voiceUsers.min, `De ${LIMITS.voiceUsers.min} a ${LIMITS.voiceUsers.max} pessoas`)
+    .max(LIMITS.voiceUsers.max, `De ${LIMITS.voiceUsers.min} a ${LIMITS.voiceUsers.max} pessoas`)
+    .optional(),
 });

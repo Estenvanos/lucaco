@@ -137,6 +137,7 @@ export async function create(serverId: string, userId: string, input: CreateChan
         type: input.type,
         topic: input.topic ?? null,
         position: input.position ?? 0,
+        ...(input.userLimit !== undefined && { userLimit: input.userLimit }),
       },
     });
     if (roles.length) {
@@ -161,6 +162,7 @@ export async function update(channelId: string, userId: string, input: UpdateCha
       ...(input.name !== undefined && { name: input.name }),
       ...(input.topic !== undefined && { topic: input.topic ?? null }),
       ...(input.position !== undefined && { position: input.position }),
+      ...(input.userLimit !== undefined && { userLimit: input.userLimit }),
     },
   });
 }
@@ -232,13 +234,21 @@ export const canSend = (channelId: string, userId: string) => requireText(channe
 export const canSendVoice = (channelId: string, userId: string) =>
   requireText(channelId, userId, "SEND_MESSAGES", "SEND_VOICE_MESSAGES");
 
+/** Images, documents and videos need ATTACH_FILES on top of writing in the channel. */
+export const canAttach = (channelId: string, userId: string) =>
+  requireText(channelId, userId, "SEND_MESSAGES", "ATTACH_FILES");
+
+/** Deleting somebody else's message. */
+export const canManageMessages = (channelId: string, userId: string) =>
+  requireText(channelId, userId, "MANAGE_MESSAGES");
+
 const requireVoice = (channelId: string, userId: string, ...needed: PermissionName[]) =>
   requireIn(channelId, userId, needed, "voice");
 
 /** Voice rooms are always backed by the server's persisted voice channel. */
 export async function canConnect(channelId: string, userId: string) {
   const { channel, permissions } = await requireVoice(channelId, userId, "VIEW_CHANNELS", "CONNECT");
-  return { ...channel, canSpeak: holds(permissions, "SPEAK") };
+  return { ...channel, canSpeak: holds(permissions, "SPEAK"), canStream: holds(permissions, "STREAM") };
 }
 
 /** Members may see who is in voice without joining the call themselves. */

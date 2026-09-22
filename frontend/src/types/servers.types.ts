@@ -38,6 +38,8 @@ export type Channel = {
   name: string;
   topic: string | null;
   position: number;
+  /** Voice only: people allowed in the call at once. */
+  userLimit: number;
   createdAt: string;
   /** What the current user may do here, overwrites applied. */
   permissions: PermissionName[];
@@ -57,12 +59,13 @@ export type PermissionName =
   | "ADMINISTRATOR"
   | "MANAGE_CHANNELS"
   | "SEND_VOICE_MESSAGES"
+  | "ATTACH_FILES"
   | "BAN_MEMBERS";
 
 /** The ones a channel overwrite may touch (backend CHANNEL_PERMISSIONS). */
 export type ChannelPermission = Extract<
   PermissionName,
-  "VIEW_CHANNELS" | "MANAGE_CHANNELS" | "MANAGE_ROLES" | "SEND_MESSAGES" | "SEND_VOICE_MESSAGES" | "CONNECT" | "SPEAK" | "STREAM"
+  "VIEW_CHANNELS" | "MANAGE_CHANNELS" | "MANAGE_ROLES" | "SEND_MESSAGES" | "SEND_VOICE_MESSAGES" | "ATTACH_FILES" | "CONNECT" | "SPEAK" | "STREAM"
 >;
 
 export type PermissionGroup = {

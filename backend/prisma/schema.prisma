@@ -212,6 +212,8 @@ model Channel {
   name      String      @db.VarChar(100)
   topic     String?
   position  Int         @default(0)
+  /// Voice only: people allowed in the call at once (1-12).
+  userLimit Int         @default(12) @map("user_limit")
   createdAt DateTime    @default(now()) @map("created_at") @db.Timestamptz
   server    Server      @relation(fields: [serverId], references: [id], onDelete: Cascade)
   rolePermissions   ChannelRolePermission[]
@@ -290,7 +292,17 @@ enum MessageScope {
   @@map("message_scope")
 }
 
-/// Encrypted attachment (voice messages today). The bytes are ciphertext; the key travels inside
+enum MediaKind {
+  voice
+  image
+  file
+  video
+
+  @@map("media_kind")
+}
+
+/// Attachment. voice/file/video are ciphertext (encrypted in the browser); image is the webp the
+/// server made, in the clear. The bytes are ciphertext; the key travels inside
 /// the E2E message. conversationId is the channel id or the derived DM id, hence no FK.
 model MediaFile {
   id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
@@ -298,6 +310,7 @@ model MediaFile {
   scope          MessageScope
   conversationId String       @map("conversation_id") @db.Uuid
   storageKey     String       @map("storage_key")
+  kind           MediaKind    @default(voice)
   sizeBytes      Int          @map("size_bytes")
   createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz
   uploader       User         @relation(fields: [uploaderId], references: [id], onDelete: Cascade)
@@ -340,6 +353,7 @@ enum NotificationTag {
   friend_request
   friend_accepted
   new_message
+  mention
 
   @@map("notification_tag")
 }
@@ -355,6 +369,9 @@ model Notification {
   /// Who caused it (the user who sent the request, accepted it, ...).
   ownerId    String          @map("owner_id") @db.Uuid
   receiverId String          @map("receiver_id") @db.Uuid
+  /// Set on mentions only: the channel to open.
+  serverId   String?         @map("server_id") @db.Uuid
+  channelId  String?         @map("channel_id") @db.Uuid
   createdAt  DateTime        @default(now()) @map("created_at") @db.Timestamptz
   owner      User            @relation("notificationOwner", fields: [ownerId], references: [id], onDelete: Cascade)
   receiver   User            @relation("notificationReceiver", fields: [receiverId], references: [id], onDelete: Cascade)

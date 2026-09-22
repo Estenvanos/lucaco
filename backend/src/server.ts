@@ -23,6 +23,7 @@ import { usersRouter } from "./modules/users/users.routes.js";
 import { friendsRouter } from "./modules/friends/friends.routes.js";
 import { notificationsRouter } from "./modules/notifications/notifications.routes.js";
 import { serversRouter } from "./modules/servers/servers.routes.js";
+import { checkLivekit } from "./modules/voice/voice.livekit.js";
 import { registerVoiceSocket } from "./modules/voice/voice.routes.js";
 
 process.on("unhandledRejection", (err) => logger.error("Unhandled rejection:", err));
@@ -75,6 +76,10 @@ async function checkDependency(name: string, target: string, check: () => Promis
 await checkDependency("Postgres", new URL(env.DATABASE_URL).host, () => prisma.$queryRaw`SELECT 1`);
 await checkDependency("MinIO", env.S3_ENDPOINT, ensureBucket);
 await checkDependency("MongoDB", new URL(env.MONGO_URL).host, connectMongo);
+await checkDependency("LiveKit (URL, API key/secret)", env.LIVEKIT_URL, () =>
+  checkLivekit(env.LIVEKIT_URL, env.LIVEKIT_API_KEY, env.LIVEKIT_API_SECRET),
+);
+logger.info(`LiveKit ok at ${env.LIVEKIT_URL}`);
 await ensureMessageIndexes();
 
 const server = createServer(app);

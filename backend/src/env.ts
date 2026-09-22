@@ -17,5 +17,9 @@ export const env = z
     S3_ACCESS_KEY: z.string(),
     S3_SECRET_KEY: z.string(),
     S3_BUCKET: z.string(),
+    // Browser-facing URL of the LiveKit SFU (ws:// in dev, wss:// in prod).
+    LIVEKIT_URL: z.string().url(),
+    LIVEKIT_API_KEY: z.string(),
+    LIVEKIT_API_SECRET: z.string(),
   })
   .parse(process.env);

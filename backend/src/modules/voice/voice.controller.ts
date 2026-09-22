@@ -1,12 +1,20 @@
 import type { Server, Socket } from "socket.io";
+import { env } from "../../env.js";
 import { HttpError } from "../../lib/http-error.js";
 import { logger } from "../../lib/logger.js";
 import { joinSchema, screenSchema, signalSchema, streamWatchSchema } from "./voice.schema.js";
+import { issueToken } from "./voice.livekit.js";
 import * as voiceService from "./voice.services.js";
 
 export async function join(io: Server, socket: Socket, payload: unknown) {
   const { channelId } = joinSchema.parse(payload);
-  return voiceService.join(io, socket.id, socket.data.userId, channelId);
+  const joined = await voiceService.join(io, socket.id, socket.data.userId, channelId);
+  const token = await issueToken(
+    { socketId: socket.id, username: socket.data.username, channelId, ...joined },
+    env.LIVEKIT_API_KEY,
+    env.LIVEKIT_API_SECRET,
+  );
+  return { ...joined, livekit: { url: env.LIVEKIT_URL, token } };
 }
 
 export async function leave(io: Server, socket: Socket) {

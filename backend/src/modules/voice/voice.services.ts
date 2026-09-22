@@ -38,11 +38,12 @@ async function announceParticipants(io: Server, channelId: string) {
  * client from sending audio anyway — mediasoup will refuse the producer without SPEAK.
  */
 export async function join(io: Server, socketId: string, userId: string, channelId: string) {
-  const { canSpeak } = await channelsService.canConnect(channelId, userId);
+  const { canSpeak, canStream, userLimit } = await channelsService.canConnect(channelId, userId);
   const socket = io.sockets.sockets.get(socketId)!;
   if (socket.data.voiceChannelId) await leave(io, socketId);
 
   const peers = (await io.in(roomKey(channelId)).fetchSockets()).map(toPeer);
+  if (peers.length >= userLimit) throw new HttpError(409, "Canal de voz lotado");
 
   socket.join(roomKey(channelId));
   socket.data.voiceChannelId = channelId;
@@ -56,7 +57,7 @@ export async function join(io: Server, socketId: string, userId: string, channel
   } satisfies Peer);
   await announceParticipants(io, channelId);
 
-  return { peers, canSpeak };
+  return { peers, canSpeak, canStream };
 }
 
 export async function leave(io: Server, socketId: string) {

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { CHANNEL_PERMISSIONS } from "../../lib/constants.js";
+import { CHANNEL_PERMISSIONS, VOICE_MAX_USERS } from "../../lib/constants.js";
 
 export const channelIdSchema = z.object({
   channelId: z.string().uuid(),
@@ -16,6 +16,8 @@ const nameSchema = z
   .min(1)
   .max(100)
   .transform((name) => name.toLowerCase().replace(/\s+/g, "-"));
+
+const userLimitSchema = z.number().int().min(1).max(VOICE_MAX_USERS);
 
 const permissionList = z.array(z.enum(CHANNEL_PERMISSIONS)).max(CHANNEL_PERMISSIONS.length);
 
@@ -42,6 +44,7 @@ export const createChannelSchema = z.object({
   type: z.enum(["text", "voice"]).default("text"),
   topic: z.string().trim().max(1024).nullish(),
   position: z.number().int().min(0).max(1000).optional(),
+  userLimit: userLimitSchema.optional(),
   // Created with the channel in one transaction, so a private channel is never briefly public.
   permissions: z
     .object({
@@ -56,6 +59,7 @@ export const updateChannelSchema = z
     name: nameSchema.optional(),
     topic: z.string().trim().max(1024).nullish(),
     position: z.number().int().min(0).max(1000).optional(),
+    userLimit: userLimitSchema.optional(),
   })
   .refine((value) => Object.keys(value).length > 0, { message: "At least one property is required" });
 
