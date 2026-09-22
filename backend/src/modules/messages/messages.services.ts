@@ -256,7 +256,7 @@ export async function remove(userId: string, { messageId, peerId }: DeleteMessag
   }
   if (doc.mediaId) {
     const media = await prisma.mediaFile.findUnique({ where: { id: doc.mediaId } });
-    if (media) await deleteObject(media.storageKey);
+    if (media) await Promise.all([media.storageKey, media.previewKey].filter((key): key is string => !!key).map((key) => deleteObject(key)));
   }
   await messages.deleteOne({ _id: doc._id });
   if (doc.mediaId) await prisma.mediaFile.deleteMany({ where: { id: doc.mediaId } });

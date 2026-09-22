@@ -8,6 +8,7 @@ export const IMAGE_PRESETS = {
   servers: { width: 256, height: 256, quality: 80 },
   banners: { width: 960, height: 400, quality: 78 }, // discovery card background, ~2.4:1
   attachments: { width: 2048, height: 2048, quality: 80 }, // chat images: shrunk to fit, never cropped or enlarged
+  attachmentPreviews: { width: 480, height: 480, quality: 70 }, // what the chat shows (lazy); a click opens the full one
 } as const;
 
 export type ImageFolder = keyof typeof IMAGE_PRESETS;

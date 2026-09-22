@@ -10,6 +10,8 @@ import type { MediaFileInput, MediaKind, UploadTarget } from "./media.schema.js"
 
 /** Short: the link only has to live until the browser downloads the file. */
 const URL_TTL_SECONDS = 300;
+/** An image is fetched by a lazy <img> only when scrolled to, which can be long after the link was issued. */
+const IMAGE_URL_TTL_SECONDS = 3600;
 
 /**
  * Stores an attachment for a conversation, under the same rules as sending the message itself.
@@ -33,17 +35,27 @@ export async function upload(userId: string, target: UploadTarget, kind: MediaKi
   }
   const id = randomUUID();
   const storageKey = `media/${conversationId}/${id}`;
-  const image = kind === "image";
-  const body = image ? await imagesService.toWebp({ buffer: file.buffer }, "attachments") : file.buffer;
-  const mime = image ? "image/webp" : "application/octet-stream";
-  await putObject(storageKey, body, mime);
+  if (kind !== "image") {
+    await putObject(storageKey, file.buffer, "application/octet-stream");
+    await prisma.mediaFile.create({
+      data: { id, uploaderId: userId, scope, conversationId, storageKey, kind, sizeBytes: file.buffer.length },
+    });
+    return { id, mime: "application/octet-stream", size: file.buffer.length };
+  }
+  // The full image (opened on click) and a small preview the chat shows; a gif stays animated in both.
+  const [body, preview] = await Promise.all([
+    imagesService.toWebp({ buffer: file.buffer }, "attachments"),
+    imagesService.toWebp({ buffer: file.buffer }, "attachmentPreviews"),
+  ]);
+  const previewKey = `${storageKey}.preview`;
+  await Promise.all([putObject(storageKey, body, "image/webp"), putObject(previewKey, preview, "image/webp")]);
   await prisma.mediaFile.create({
-    data: { id, uploaderId: userId, scope, conversationId, storageKey, kind, sizeBytes: body.length },
+    data: { id, uploaderId: userId, scope, conversationId, storageKey, previewKey, kind, sizeBytes: body.length },
   });
-  return { id, mime, size: body.length };
+  return { id, mime: "image/webp", size: body.length, ...(await imagesService.dimensions(preview)) };
 }
 
-/** A short-lived download link, for whoever can read the conversation the file was sent to. */
+/** A short-lived download link (and an image's preview link), for whoever can read the conversation the file was sent to. */
 export async function getUrl(mediaId: string, userId: string) {
   const media = await prisma.mediaFile.findUnique({ where: { id: mediaId } });
   if (!media) throw new HttpError(404, "Media not found");
@@ -55,5 +67,9 @@ export async function getUrl(mediaId: string, userId: string) {
   ) {
     throw new HttpError(403, "Not part of this conversation");
   }
-  return { url: await signedGetUrl(media.storageKey, URL_TTL_SECONDS) };
+  const ttl = media.kind === "image" ? IMAGE_URL_TTL_SECONDS : URL_TTL_SECONDS;
+  return {
+    url: await signedGetUrl(media.storageKey, ttl),
+    ...(media.previewKey && { previewUrl: await signedGetUrl(media.previewKey, ttl) }),
+  };
 }

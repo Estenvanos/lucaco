@@ -397,6 +397,16 @@ describe("remove", () => {
     expect(result).toEqual({ id: id.toHexString(), channelId: service.dmId(ALICE, BOB), recipients: [ALICE, BOB] });
   });
 
+  it("deletes an image's preview along with the image", async () => {
+    messages.findOne.mockResolvedValue(dmDoc());
+    mediaFile.findUnique.mockResolvedValue({ storageKey: "media/k", previewKey: "media/k.preview" });
+
+    await service.remove(ALICE, { messageId: id.toHexString(), peerId: BOB });
+
+    expect(deleteObject).toHaveBeenCalledWith("media/k");
+    expect(deleteObject).toHaveBeenCalledWith("media/k.preview");
+  });
+
   it("does not let the peer delete a DM message, nor name the wrong peer", async () => {
     messages.findOne.mockResolvedValue(dmDoc());
     await expect(service.remove(BOB, { messageId: id.toHexString(), peerId: ALICE })).rejects.toMatchObject({ status: 403 });

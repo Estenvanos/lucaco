@@ -1,23 +1,37 @@
 import { File as FileIcon, Play } from "lucide-react";
 import { useState } from "react";
 import { formatBytes } from "../../lib/utils";
-import { saveAttachment, useAttachment } from "../../services/messages/messages.media";
+import { saveAttachment, useAttachment, useImageUrls } from "../../services/messages/messages.media";
 import type { AttachmentMessageProps } from "../../types/ui.types";
 
 /**
- * An image shows itself. A video or document is a card: nothing (up to 100 MB) is downloaded
- * until the user asks, by playing the video or saving the document.
+ * An image shows its small preview, loaded lazily when scrolled near; a click opens the full one.
+ * A video or document is a card: nothing (up to 100 MB) is downloaded until the user asks, by
+ * playing the video or saving the document.
  */
 export function AttachmentMessage({ attachment }: AttachmentMessageProps) {
   const [playing, setPlaying] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const media = useAttachment(attachment, attachment.kind === "image" || playing);
+  const media = useAttachment(attachment, playing);
+  const image = useImageUrls(attachment.mediaId, attachment.kind === "image");
 
   if (attachment.kind === "image") {
-    if (media.error) return <p className="chat-undecryptable">{media.error.message}</p>;
-    if (!media.data) return <p className="chat-audio-loading">Carregando imagem...</p>;
-    return <img className="chat-attachment-image" src={media.data} alt={attachment.name} />;
+    if (image.error) return <p className="chat-undecryptable">{image.error.message}</p>;
+    if (!image.data) return <p className="chat-audio-loading">Carregando imagem...</p>;
+    return (
+      <a href={image.data.url} target="_blank" rel="noopener noreferrer" title={`Abrir ${attachment.name}`}>
+        <img
+          className="chat-attachment-image"
+          src={image.data.previewUrl ?? image.data.url}
+          alt={attachment.name}
+          width={attachment.width}
+          height={attachment.height}
+          loading="lazy"
+          decoding="async"
+        />
+      </a>
+    );
   }
 
   if (attachment.kind === "video" && playing && media.data) {

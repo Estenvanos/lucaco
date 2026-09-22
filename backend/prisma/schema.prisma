@@ -317,6 +317,8 @@ model MediaFile {
   storageKey     String       @map("storage_key")
   kind           MediaKind    @default(voice)
   sizeBytes      Int          @map("size_bytes")
+  /// Images only: the small webp the chat shows lazily (null for images sent before previews).
+  previewKey     String?      @map("preview_key")
   createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz
   uploader       User         @relation(fields: [uploaderId], references: [id], onDelete: Cascade)
 

@@ -37,6 +37,9 @@ export type AttachmentRef = {
   size: number;
   key?: string;
   iv?: string;
+  /** Image only: the preview's size, so the lazy <img> holds its place before it loads. */
+  width?: number;
+  height?: number;
   /** Video only: its first frame as a tiny data URL, so the card shows something before playing. */
   thumb?: string;
 };

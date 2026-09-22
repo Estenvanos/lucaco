@@ -5,4 +5,5 @@ export const messagesKeys = {
   channel: (channelId: string) => [...messagesKeys.all, "channel", channelId] as const,
   audio: (mediaId: string) => [...messagesKeys.all, "audio", mediaId] as const,
   attachment: (mediaId: string) => [...messagesKeys.all, "attachment", mediaId] as const,
+  imageUrls: (mediaId: string) => [...messagesKeys.all, "image-urls", mediaId] as const,
 };

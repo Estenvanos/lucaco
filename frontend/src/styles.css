@@ -3494,6 +3494,7 @@ form {
   display: block;
   max-width: min(100%, 26rem);
   max-height: 20rem;
+  height: auto; /* width comes from the attribute, so the lazy image holds its place before it loads */
   margin-top: 0.25rem;
   border-radius: 10px;
   object-fit: contain;

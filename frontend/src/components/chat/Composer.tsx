@@ -1,7 +1,7 @@
 import { File as FileIcon, Mic, Paperclip, Square, Trash2, X } from "lucide-react";
 import { useRef, useState, type KeyboardEvent } from "react";
 import { EVERYONE } from "../../lib/mentions";
-import { LIMITS } from "../../constants/limits";
+import { ATTACHMENT_ACCEPT, LIMITS } from "../../constants/limits";
 import { formatBytes, formatDuration } from "../../lib/utils";
 import type { ComposerProps } from "../../types/ui.types";
 
@@ -154,10 +154,11 @@ export function Composer({
         )}
         {attacher && !recording && (
           <>
-            {/* Any file: the kind (image, video, document) is read from its type after it is picked. */}
+            {/* Allowed formats only: the kind (image, video, document) is read from its type after it is picked. */}
             <input
               ref={fileInput}
               type="file"
+              accept={ATTACHMENT_ACCEPT}
               className="sr-only"
               tabIndex={-1}
               aria-hidden

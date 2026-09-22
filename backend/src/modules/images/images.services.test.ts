@@ -65,6 +65,38 @@ describe("toWebp", () => {
     expect(meta.exif).toBeUndefined();
   });
 
+  it("keeps a gif's animation in a chat image and its preview, but not in an avatar", async () => {
+    // Three 64x32 frames of different colors (the gif encoder merges identical ones).
+    const strip = Buffer.alloc(64 * 96 * 4);
+    for (let i = 0; i < strip.length; i += 4) {
+      strip[i] = Math.floor(i / 4 / 64 / 32) * 100;
+      strip[i + 3] = 255;
+    }
+    const gif = await sharp(strip, { raw: { width: 64, height: 96, channels: 4, pageHeight: 32 } }).gif().toBuffer();
+    const pages = async (folder: "attachments" | "attachmentPreviews" | "avatars") =>
+      (await sharp(await images.toWebp({ buffer: gif }, folder)).metadata()).pages ?? 1;
+
+    expect(await pages("attachments")).toBe(3);
+    expect(await pages("attachmentPreviews")).toBe(3);
+    expect(await pages("avatars")).toBe(1);
+    expect(await images.dimensions(await images.toWebp({ buffer: gif }, "attachmentPreviews"))).toEqual({ width: 64, height: 32 });
+  });
+
+  it("goes by the real bytes, not the claimed type: an svg sent as png is refused", async () => {
+    const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"/>');
+
+    await expect(images.toWebp({ mimetype: "image/png", size: svg.length, buffer: svg }, "attachments")).rejects.toMatchObject({
+      status: 400,
+    });
+  });
+
+  it("shrinks a chat preview to 480px", async () => {
+    const big = await png(2000, 1000);
+    const meta = await sharp(await images.toWebp({ buffer: big }, "attachmentPreviews")).metadata();
+
+    expect([meta.width, meta.height]).toEqual([480, 240]);
+  });
+
   it("turns an unreadable buffer into a 400 instead of crashing", async () => {
     await expect(
       images.toWebp({ mimetype: "image/png", size: 4, buffer: Buffer.from("nope") }, "avatars"),

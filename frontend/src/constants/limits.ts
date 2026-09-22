@@ -20,4 +20,16 @@ export const LIMITS = {
   imageMaxBytes: 5 * 1024 * 1024,
   /** Chat attachments by kind (mirrors MEDIA_MAX_BYTES in the API). */
   attachmentBytes: { image: 15 * 1024 * 1024, file: 30 * 1024 * 1024, video: 100 * 1024 * 1024 },
+  /** Extensions the API takes per kind (mirrors MEDIA_FORMATS and imageMimeSchema). */
+  attachmentFormats: {
+    image: ["png", "jpg", "jpeg", "webp", "gif", "avif"],
+    file: ["pdf", "txt", "csv", "md", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp", "zip", "7z", "rar"],
+    video: ["mp4", "webm", "mov", "ogv"],
+  },
 } as const;
+
+/** What the attachment file input offers: every allowed extension. */
+export const ATTACHMENT_ACCEPT = Object.values(LIMITS.attachmentFormats)
+  .flat()
+  .map((ext) => `.${ext}`)
+  .join(",");
