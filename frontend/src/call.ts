@@ -1,7 +1,9 @@
 import { Room, RoomEvent, Track, type RemoteParticipant, type RemoteTrack, type RemoteTrackPublication } from "livekit-client";
 import type { Socket } from "socket.io-client";
 import { SOCKET_EVENTS } from "./constants/socket-events";
-import type { CallEvents, PeerInfo } from "./types/voice.types";
+import { openProcessedMic } from "./services/audio/processing";
+import type { UserSettings } from "./types/users.types";
+import type { CallEvents, PeerInfo, ProcessedMic } from "./types/voice.types";
 
 // 1080p30 at ~4 Mbps: with the SFU the streamer uploads this once, whatever the viewer count.
 // ponytail: fixed quality; add a picker (720p/1080p, "motion" contentHint) if uploads start to choke.
@@ -21,6 +23,8 @@ export class Call {
   /** Socket id of the stream this tab watches: screen tracks are only subscribed for it. */
   private watching: string | null = null;
   private muted = false;
+  /** Noise suppression + EQ graph behind the published mic track. */
+  private mic: ProcessedMic | null = null;
   /** One MediaStream per "<socketId>:mic" or "<socketId>:screen" (tab video + tab audio together). */
   private remote = new Map<string, MediaStream>();
 
@@ -55,7 +59,7 @@ export class Call {
     return track ? new MediaStream([track.mediaStreamTrack]) : null;
   }
 
-  async join(channelId: string, audioInputId: string | null = null) {
+  async join(channelId: string, settings: UserSettings) {
     const res = await this.socket.emitWithAck(SOCKET_EVENTS.voiceJoin, { channelId });
     if (res.error) throw new Error(res.error);
     this.canSpeak = res.canSpeak !== false;
@@ -70,13 +74,10 @@ export class Call {
     try {
       await room.connect(res.livekit.url, res.livekit.token, { autoSubscribe: false });
       // Without SPEAK the token cannot publish audio: the mic is never opened.
+      // ponytail: EQ/noise settings apply on the next join — rebuild the graph live if asked.
       if (this.canSpeak) {
-        await room.localParticipant.setMicrophoneEnabled(true, {
-          ...(audioInputId && { deviceId: { exact: audioInputId } }),
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        });
+        this.mic = await openProcessedMic(settings);
+        await room.localParticipant.publishTrack(this.mic.track, { source: Track.Source.Microphone });
       }
     } catch (err) {
       await this.leave();
@@ -94,6 +95,8 @@ export class Call {
     this.remote.clear();
     this.watching = null;
     await room?.disconnect();
+    this.mic?.close();
+    this.mic = null;
     await this.socket.emitWithAck(SOCKET_EVENTS.voiceLeave, {});
   }
 

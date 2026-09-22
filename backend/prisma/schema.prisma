@@ -23,6 +23,12 @@ model User {
   /// MediaDeviceInfo.deviceId, which is per browser and origin: may not exist on another machine.
   audioInputId           String?           @map("audio_input_id") @db.VarChar(256)
   audioOutputId          String?           @map("audio_output_id") @db.VarChar(256)
+  /// Microphone processing, applied in the browser before the audio leaves (call and recordings).
+  noiseSuppression       NoiseSuppression  @default(browser) @map("noise_suppression")
+  /// Equalizer gains in dB (-12..12): low shelf 200 Hz, peak 1 kHz, high shelf 4 kHz.
+  eqLow                  Int               @default(0) @map("eq_low") @db.SmallInt
+  eqMid                  Int               @default(0) @map("eq_mid") @db.SmallInt
+  eqHigh                 Int               @default(0) @map("eq_high") @db.SmallInt
   /// Users whose notifications are dropped before they are stored (right-click > Silenciar).
   mutedUserIds           String[]          @default([]) @map("muted_user_ids") @db.Uuid
   createdAt         DateTime       @default(now()) @map("created_at") @db.Timestamptz
@@ -43,6 +49,14 @@ model User {
   serverBans        ServerBan[]
 
   @@map("users")
+}
+
+enum NoiseSuppression {
+  off
+  browser
+  rnnoise
+
+  @@map("noise_suppression")
 }
 
 enum Theme {

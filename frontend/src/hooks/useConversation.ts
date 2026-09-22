@@ -20,7 +20,7 @@ export function useConversation(peerId: string) {
   const chat = useChat(me.id, peerId);
   const peerTyping = useChatLive(me.id, peerId);
   const composer = useComposer((out) => sendMessage(me.id, peerId, out));
-  const voice = useVoiceRecorder(me.settings.audioInputId, async (recording, durationMs) => {
+  const voice = useVoiceRecorder(me.settings, async (recording, durationMs) => {
     const audio = await uploadVoice({ peerId }, recording, durationMs);
     await sendMessage(me.id, peerId, { text: "", audio, attachment: null });
   });

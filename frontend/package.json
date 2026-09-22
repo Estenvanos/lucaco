@@ -8,6 +8,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@sapphi-red/web-noise-suppressor": "^0.4.1",
     "@tanstack/react-query": "^5.90.2",
     "livekit-client": "^2.22.3",
     "lucide-react": "^1.47.0",

@@ -1,4 +1,5 @@
 import {
+  ChevronDown,
   Maximize,
   MessageCircle,
   Mic,
@@ -11,25 +12,37 @@ import {
   VolumeX,
   X,
 } from "lucide-react";
+import { LIMITS } from "../../constants/limits";
 import { useFullscreen } from "../../hooks/useFullscreen";
+import { playbackOf } from "../../services/voice/voice";
 import type { StreamViewersProps, VoiceMediaProps, VoiceStageProps, VoiceTileProps } from "../../types/ui.types";
 import { ChatAvatar } from "../chat/ChatAvatar";
 import { ChannelView } from "./ChannelView";
 import { openContextMenu } from "../../lib/context-menu";
 import { VoiceUserMenu } from "./VoiceUserMenu";
 
-function VoiceMedia({ item, outputId, deafened, audio }: VoiceMediaProps) {
-  const attach = (node: HTMLMediaElement | null) => {
+function VoiceMedia({ item, outputId, deafened, audio, volume }: VoiceMediaProps) {
+  const attachAudio = (node: HTMLAudioElement | null) => {
     if (!node) return;
+    // Up to 200% through a GainNode; the same output stream comes back while the input is unchanged.
+    const stream = playbackOf(item.key, item.stream, volume);
     // Reassigning the same stream reloads the element: skip it on every re-render.
-    if (node.srcObject !== item.stream) node.srcObject = item.stream;
-    if (!item.hasVideo) node.volume = audio?.volume ?? 1;
+    if (node.srcObject !== stream) node.srcObject = stream;
     if (outputId && "setSinkId" in node) void node.setSinkId(outputId).catch(() => {});
   };
+  const attachVideo = (node: HTMLVideoElement | null) => {
+    if (node && node.srcObject !== item.stream) node.srcObject = item.stream;
+  };
 
-  // Per-user mute and volume apply to the microphone only; the shared tab keeps its own audio.
-  if (!item.hasVideo) return <audio ref={attach} autoPlay muted={deafened || audio?.muted} />;
-  return <video className="voice-watch-video" ref={attach} autoPlay playsInline muted={deafened} />;
+  // Per-user mute applies to the microphone; the shared tab only has its own volume.
+  const sound = <audio ref={attachAudio} autoPlay muted={deafened || audio?.muted} />;
+  if (!item.hasVideo) return sound;
+  return (
+    <>
+      <video className="voice-watch-video" ref={attachVideo} autoPlay playsInline muted />
+      {sound}
+    </>
+  );
 }
 
 const VIEWERS_SHOWN = 5;
@@ -61,6 +74,18 @@ function VoiceTile({ tile, local, preview, onWatch, onVolume, onMute }: VoiceTil
     >
       {local && tile.sharing && preview && <img className="voice-tile-preview" src={preview} alt="" />}
       <ChatAvatar user={tile.person} size="lg" />
+      {!local && (
+        <button
+          type="button"
+          className="voice-tile-menu-button"
+          aria-haspopup="menu"
+          aria-label={`Áudio de ${name}`}
+          title={`Áudio de ${name}`}
+          onClick={(event) => openContextMenu(event, event.currentTarget.parentElement?.querySelector<HTMLElement>("[popover]"))}
+        >
+          <ChevronDown aria-hidden />
+        </button>
+      )}
       {tile.sharing && (
         <div className="voice-tile-live">
           <span className="voice-live-badge">{local ? "Você está transmitindo" : "Ao vivo"}</span>
@@ -98,6 +123,7 @@ export function VoiceStage({
   onUserMute,
   onWatch,
   onUnwatch,
+  onStreamVolume,
 }: VoiceStageProps) {
   const fullscreen = useFullscreen();
   const watched = voice.watching ? tiles.find((tile) => tile.socketId === voice.watching) : undefined;
@@ -116,6 +142,20 @@ export function VoiceStage({
             {watched ? `Transmissão de ${watched.person.displayName ?? watched.person.username}` : channelName}
           </h1>
           {watched && <StreamViewers viewers={watched.viewers} />}
+          {watched && (
+            <label className="voice-stream-volume" title="Volume da transmissão (só para você)">
+              <Volume2 aria-hidden />
+              <span className="sr-only">Volume da transmissão</span>
+              <input
+                type="range"
+                min={0}
+                max={LIMITS.playbackVolume * 100}
+                value={Math.round(voice.streamVolume * 100)}
+                onChange={(event) => onStreamVolume(event.currentTarget.valueAsNumber / 100)}
+              />
+              <output>{Math.round(voice.streamVolume * 100)}%</output>
+            </label>
+          )}
           {watched && (
             <button type="button" className="voice-leave-stream" onClick={onUnwatch}>
               <X aria-hidden />
@@ -140,13 +180,26 @@ export function VoiceStage({
         {voice.streams
           .filter((item) => !item.hasVideo)
           .map((item) => (
-            <VoiceMedia key={item.key} item={item} outputId={outputId} deafened={voice.deafened} audio={audioOf(item.key)} />
+            <VoiceMedia
+              key={item.key}
+              item={item}
+              outputId={outputId}
+              deafened={voice.deafened}
+              audio={audioOf(item.key)}
+              volume={audioOf(item.key)?.volume ?? 1}
+            />
           ))}
 
         {voice.watching ? (
           <div className="voice-watch">
             {watchedStream ? (
-              <VoiceMedia item={watchedStream} outputId={outputId} deafened={voice.deafened} audio={undefined} />
+              <VoiceMedia
+                item={watchedStream}
+                outputId={outputId}
+                deafened={voice.deafened}
+                audio={undefined}
+                volume={voice.streamVolume}
+              />
             ) : (
               <p className="voice-watch-waiting">Conectando à transmissão...</p>
             )}

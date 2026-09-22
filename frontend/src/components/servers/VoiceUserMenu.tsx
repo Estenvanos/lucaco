@@ -1,7 +1,8 @@
+import { LIMITS } from "../../constants/limits";
 import type { VoiceUserMenuProps } from "../../types/ui.types";
 
 /**
- * Right-click menu of a user in the call (stage tile or sidebar row). popover="auto" gives Esc and
+ * Right-click (or card dropdown) menu of a user in the call (stage tile or sidebar row). popover="auto" gives Esc and
  * click-outside for free. Changes only affect what this tab plays.
  */
 export function VoiceUserMenu({ name, audio, onVolume, onMute }: VoiceUserMenuProps) {
@@ -15,7 +16,7 @@ export function VoiceUserMenu({ name, audio, onVolume, onMute }: VoiceUserMenuPr
         <input
           type="range"
           min={0}
-          max={100}
+          max={LIMITS.playbackVolume * 100}
           value={Math.round(audio.volume * 100)}
           onChange={(event) => onVolume(event.currentTarget.valueAsNumber / 100)}
         />

@@ -51,6 +51,7 @@ export function ServerPage() {
           onUserMute={page.toggleUserMute}
           onWatch={page.watchStream}
           onUnwatch={page.unwatchStream}
+          onStreamVolume={page.setStreamVolume}
         />
       ) : page.activeChannel ? (
         // key: switching channels starts the view fresh instead of carrying the draft over.

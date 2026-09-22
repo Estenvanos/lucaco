@@ -251,6 +251,7 @@ export type VoiceStageProps = {
   onUserMute: (userId: string) => void;
   onWatch: (socketId: string) => void;
   onUnwatch: () => void;
+  onStreamVolume: (volume: number) => void;
 };
 
 /** `local` = this tab's own tile: no per-user audio menu. */
@@ -268,7 +269,14 @@ export type VoiceUserMenuProps = { name: string; audio: UserAudio; onVolume: (vo
 
 export type StreamViewersProps = { viewers: ChatPerson[] };
 
-export type VoiceMediaProps = { item: VoiceStream; outputId: string | null; deafened: boolean; audio: UserAudio | undefined };
+/** `volume`: playback gain, 0 to 2. */
+export type VoiceMediaProps = {
+  item: VoiceStream;
+  outputId: string | null;
+  deafened: boolean;
+  audio: UserAudio | undefined;
+  volume: number;
+};
 
 export type MemberListProps = { server: PublicServer; members: ServerMember[]; currentUserId: string };
 

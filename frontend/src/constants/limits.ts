@@ -14,6 +14,10 @@ export const LIMITS = {
   voiceUsers: { min: 1, max: 12 },
   /** Voice messages: the recorder stops by itself at this length. The API caps files at 5 MB. */
   voiceMessageMs: 2 * 60 * 1000,
+  /** Equalizer gain range in dB, both ways. */
+  eqDb: 12,
+  /** Per-user and stream playback volume: 2 = 200%. */
+  playbackVolume: 2,
   friendRequestMessage: { max: 120 },
   /** Plaintext cap: the ciphertext (base64 + GCM tag) must fit the API's 8 KiB limit. */
   messageText: { max: 2000 },

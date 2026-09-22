@@ -14,6 +14,7 @@ jest.unstable_mockModule("../../lib/storage.js", () => ({ signedGetUrl: jest.fn(
 jest.unstable_mockModule("../images/images.services.js", () => ({ store, remove }));
 
 const users = await import("./users.services.js");
+const { updateSettingsSchema } = await import("./users.schema.js");
 
 const USER_ID = "11111111-1111-1111-1111-111111111111";
 const userRow = (over: Record<string, unknown> = {}) => ({
@@ -29,6 +30,10 @@ const userRow = (over: Record<string, unknown> = {}) => ({
   hiddenNotificationTags: [],
   audioInputId: null,
   audioOutputId: null,
+  noiseSuppression: "browser" as const,
+  eqLow: 0,
+  eqMid: 0,
+  eqHigh: 0,
   mutedUserIds: [] as string[],
   createdAt: new Date(),
   updatedAt: new Date(),
@@ -60,7 +65,13 @@ describe("toPublicUser", () => {
 
 describe("settings", () => {
   it("go out with the owner's own user, still without the hash", async () => {
-    const row = userRow({ theme: "light", audioInputId: "mic-1", hiddenNotificationTags: ["new_message"] });
+    const row = userRow({
+      theme: "light",
+      audioInputId: "mic-1",
+      hiddenNotificationTags: ["new_message"],
+      noiseSuppression: "rnnoise",
+      eqLow: 3,
+    });
 
     const publicUser = await users.toPublicUser(row);
 
@@ -70,6 +81,10 @@ describe("settings", () => {
       hiddenNotificationTags: ["new_message"],
       audioInputId: "mic-1",
       audioOutputId: null,
+      noiseSuppression: "rnnoise",
+      eqLow: 3,
+      eqMid: 0,
+      eqHigh: 0,
       mutedUserIds: [],
     });
     expect(JSON.stringify(publicUser)).not.toContain("argon2id");
@@ -81,6 +96,13 @@ describe("settings", () => {
     await users.updateSettings(USER_ID, { notificationsMuted: true });
 
     expect(user.update).toHaveBeenCalledWith({ where: { id: USER_ID }, data: { notificationsMuted: true } });
+  });
+
+  it("accept equalizer gains only within ±12 dB and known noise modes", () => {
+    expect(updateSettingsSchema.safeParse({ eqLow: -12, eqHigh: 12, noiseSuppression: "rnnoise" }).success).toBe(true);
+    expect(updateSettingsSchema.safeParse({ eqMid: 13 }).success).toBe(false);
+    expect(updateSettingsSchema.safeParse({ eqMid: 1.5 }).success).toBe(false);
+    expect(updateSettingsSchema.safeParse({ noiseSuppression: "krisp" }).success).toBe(false);
   });
 
   it("stay out of the public profile other users see", async () => {

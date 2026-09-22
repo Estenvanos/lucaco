@@ -50,6 +50,7 @@ export const updateProfileSchema = z
 export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;
 
 const deviceIdSchema = z.string().min(1).max(256).nullable().optional();
+const eqGainSchema = z.number().int().min(-12).max(12).optional();
 
 export const updateSettingsSchema = z
   .object({
@@ -62,6 +63,10 @@ export const updateSettingsSchema = z
       .optional(),
     audioInputId: deviceIdSchema,
     audioOutputId: deviceIdSchema,
+    noiseSuppression: z.enum(["off", "browser", "rnnoise"]).optional(),
+    eqLow: eqGainSchema,
+    eqMid: eqGainSchema,
+    eqHigh: eqGainSchema,
   })
   .refine((input) => Object.keys(input).length > 0, "Nothing to update");
 

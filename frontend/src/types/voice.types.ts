@@ -40,9 +40,11 @@ export type VoiceSnapshot = {
   error: string | null;
   /** Local-only mute and volume per remote user id; nobody else hears the change. */
   userAudio: Record<string, UserAudio>;
+  /** Local volume of the watched stream's audio, 0 to 2. */
+  streamVolume: number;
 };
 
-/** Volume is the <audio> element's: 0 to 1. */
+/** Volume 0 to 2 (200%), applied through a GainNode. */
 export type UserAudio = { muted: boolean; volume: number };
 
 export type VoiceTile = {
@@ -56,3 +58,14 @@ export type VoiceTile = {
   /** Who is watching this tile's stream. */
   viewers: ChatPerson[];
 };
+
+/** The microphone after noise suppression and equalizer, ready to publish or record. */
+export type ProcessedMic = {
+  stream: MediaStream;
+  track: MediaStreamTrack;
+  context: AudioContext;
+  /** Stops the raw capture and the processing graph. */
+  close: () => void;
+};
+
+export type MicTest = { testing: boolean; /** 0..1 */ level: number };

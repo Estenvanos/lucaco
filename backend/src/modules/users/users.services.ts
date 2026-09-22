@@ -26,6 +26,10 @@ export async function toPublicUser(user: User) {
       hiddenNotificationTags: user.hiddenNotificationTags,
       audioInputId: user.audioInputId,
       audioOutputId: user.audioOutputId,
+      noiseSuppression: user.noiseSuppression,
+      eqLow: user.eqLow,
+      eqMid: user.eqMid,
+      eqHigh: user.eqHigh,
       mutedUserIds: user.mutedUserIds,
     },
   };

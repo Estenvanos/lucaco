@@ -24,7 +24,7 @@ export function useChannelChat(channel: Channel) {
   const composer = useComposer((out) =>
     sendChannelMessage(me.id, channel.id, out, extractMentions(out.text, people)),
   );
-  const voice = useVoiceRecorder(me.settings.audioInputId, async (recording, durationMs) => {
+  const voice = useVoiceRecorder(me.settings, async (recording, durationMs) => {
     const audio = await uploadVoice({ channelId: channel.id }, recording, durationMs);
     await sendChannelMessage(me.id, channel.id, { text: "", audio, attachment: null });
   });

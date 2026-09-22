@@ -2,6 +2,7 @@ import { useSyncExternalStore } from "react";
 import { Call } from "../../call";
 import { SOCKET_EVENTS } from "../../constants/socket-events";
 import { holdSocket, socket } from "../../lib/socket";
+import type { UserSettings } from "../../types/users.types";
 import type { PeerInfo, UserAudio, VoiceSnapshot, VoiceStream } from "../../types/voice.types";
 
 let snapshot: VoiceSnapshot = {
@@ -22,6 +23,7 @@ let snapshot: VoiceSnapshot = {
   status: null,
   error: null,
   userAudio: {},
+  streamVolume: 1,
 };
 const listeners = new Set<() => void>();
 let releaseSocket: (() => void) | null = null;
@@ -77,6 +79,39 @@ function stopMeters() {
   meterTimer = null;
 }
 
+// Playback above 100%: <audio>.volume stops at 1, so remote audio plays through a GainNode.
+const playbacks = new Map<string, { stream: MediaStream; holder: HTMLAudioElement; source: AudioNode; gain: GainNode; output: MediaStream }>();
+
+/** The stream to put in the <audio> element for `key`, `volume` times louder (0..2). */
+export function playbackOf(key: string, stream: MediaStream, volume: number) {
+  if (!audio || !stream.getAudioTracks().length) return stream;
+  let playback = playbacks.get(key);
+  if (playback?.stream !== stream) {
+    dropPlayback(key);
+    // Chromium only feeds a remote WebRTC stream to Web Audio while a media element plays it.
+    const holder = new Audio();
+    holder.muted = true;
+    holder.srcObject = stream;
+    void holder.play().catch(() => {});
+    const source = audio.createMediaStreamSource(stream);
+    const gain = audio.createGain();
+    const destination = audio.createMediaStreamDestination();
+    source.connect(gain).connect(destination);
+    playback = { stream, holder, source, gain, output: destination.stream };
+    playbacks.set(key, playback);
+  }
+  playback.gain.gain.value = volume;
+  return playback.output;
+}
+
+function dropPlayback(key: string) {
+  const playback = playbacks.get(key);
+  if (!playback) return;
+  playback.source.disconnect();
+  playback.holder.srcObject = null;
+  playbacks.delete(key);
+}
+
 const PREVIEW_WIDTH = 480;
 
 /** Still of the share's first frame: the sharer sees what goes out without a second live video. */
@@ -107,7 +142,10 @@ const call = new Call(socket, {
         ]
       : snapshot.streams.filter((item) => !item.key.startsWith(key));
     if (stream) meter(key, stream);
-    else for (const meterKey of [...meters.keys()]) if (meterKey.startsWith(key)) meter(meterKey, null);
+    else {
+      for (const meterKey of [...meters.keys()]) if (meterKey.startsWith(key)) meter(meterKey, null);
+      for (const playKey of [...playbacks.keys()]) if (playKey.startsWith(key)) dropPlayback(playKey);
+    }
     publish({ streams, ...(key === "local-screen" && { sharing: Boolean(stream), preview: null }) });
     if (key === "local-screen" && stream) {
       void firstFrame(stream)
@@ -163,7 +201,7 @@ function subscription(channelId: string | null) {
 export const useVoice = (channelId: string | null) =>
   useSyncExternalStore(subscription(channelId), () => snapshot);
 
-export async function joinVoice(channelId: string, audioInputId: string | null) {
+export async function joinVoice(channelId: string, settings: UserSettings) {
   if (snapshot.channelId === channelId || snapshot.joining) return;
   publish({ joining: true, error: null, status: "Conectando ao canal de voz..." });
   try {
@@ -172,7 +210,7 @@ export async function joinVoice(channelId: string, audioInputId: string | null) 
     // Created on the click that joins: browsers only start an AudioContext after a user gesture.
     audio ??= new AudioContext();
     void audio.resume();
-    await call.join(channelId, audioInputId);
+    await call.join(channelId, settings);
     meter("local-mic", call.micStream);
     meterTimer ??= window.setInterval(sampleSpeaking, SPEAKING_POLL_MS);
     publish({
@@ -195,6 +233,7 @@ export async function leaveVoice() {
     await call.leave();
   } finally {
     stopMeters();
+    for (const key of [...playbacks.keys()]) dropPlayback(key);
     releaseSocket?.();
     releaseSocket = null;
     publish({
@@ -262,6 +301,8 @@ function setUserAudio(userId: string, change: Partial<UserAudio>) {
   const current = snapshot.userAudio[userId] ?? DEFAULT_USER_AUDIO;
   publish({ userAudio: { ...snapshot.userAudio, [userId]: { ...current, ...change } } });
 }
+
+export const setStreamVolume = (streamVolume: number) => publish({ streamVolume });
 
 export const setUserVolume = (userId: string, volume: number) => setUserAudio(userId, { volume });
 
