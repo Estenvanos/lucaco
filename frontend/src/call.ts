@@ -106,7 +106,7 @@ export class Call {
     return this.muted;
   }
 
-  /** Native OS capture via getDisplayMedia, restricted to a browser tab + that tab's audio. */
+  /** Native OS capture via getDisplayMedia: a browser tab (+ tab audio) or a whole monitor (+ system audio, Windows/ChromeOS). */
   async startShare() {
     const stream = await navigator.mediaDevices.getDisplayMedia({
       video: {
@@ -115,29 +115,31 @@ export class Call {
         frameRate: { max: SCREEN.frameRate },
         displaySurface: "browser",
       },
-      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
-      // Hints (Chromium): offer tabs first, hide whole-monitor option.
+      // restrictOwnAudio: keep this page's call audio out of system-audio capture (no echo for viewers); ignored where unsupported.
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, restrictOwnAudio: true },
+      // Hints (Chromium): offer tabs first, also allow whole monitor (no blue tab border).
       preferCurrentTab: false,
       selfBrowserSurface: "include",
       surfaceSwitching: "include",
-      monitorTypeSurfaces: "exclude",
+      monitorTypeSurfaces: "include",
+      systemAudio: "include",
     } as DisplayMediaStreamOptions);
 
     const video = stream.getVideoTracks()[0];
     const surface = (video.getSettings() as MediaTrackSettings & { displaySurface?: string }).displaySurface;
-    if (surface && surface !== "browser") {
+    if (surface && surface !== "browser" && surface !== "monitor") {
       stream.getTracks().forEach((t) => t.stop());
-      throw new Error("Compartilhe uma ABA do navegador (janela/tela não são permitidas).");
+      throw new Error("Compartilhe uma ABA ou a TELA inteira (janela não é permitida).");
     }
     const audio = stream.getAudioTracks()[0];
     if (!audio) {
-      this.events.onStatus("Sem áudio: marque 'compartilhar áudio da aba' para transmitir com som.");
+      this.events.onStatus("Sem áudio: marque 'compartilhar áudio' no seletor (tela inteira só tem áudio no Windows/ChromeOS).");
     }
 
     video.contentHint = "detail";
     video.addEventListener("ended", () => this.stopShare()); // "Stop sharing" button of the browser
     this.screen = stream;
-    this.events.onStream("local-screen", stream, "Você (aba)");
+    this.events.onStream("local-screen", stream, surface === "monitor" ? "Você (tela)" : "Você (aba)");
     try {
       const response = await this.socket.emitWithAck(SOCKET_EVENTS.voiceScreen, { sharing: true });
       if (response.error) throw new Error(response.error);
