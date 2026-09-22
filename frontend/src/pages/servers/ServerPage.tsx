@@ -59,7 +59,9 @@ export function ServerPage() {
         <p className="chat-empty">{page.channelsLoading ? "Carregando canais..." : "Nenhum canal de texto."}</p>
       )}
       {/* In a call the stage takes the rest of the screen; only the channels column stays. */}
-      {!page.inCall && <MemberList server={page.server} members={page.members} />}
+      {!page.inCall && (
+        <MemberList server={page.server} members={page.members} currentUserId={page.currentUserId} />
+      )}
       {page.settings && (
         <ChannelSettings
           server={page.server}

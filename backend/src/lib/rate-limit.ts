@@ -82,5 +82,6 @@ export function allOf(...limiters: SocketLimiter[]): SocketLimiter {
 export const socketLimits = {
   /** Burst of 5 in 5 s, and 60 per minute sustained. */
   messageSend: allOf(socketLimiter(5 * SECOND, 5), socketLimiter(MINUTE, 60)),
+  messageDelete: socketLimiter(5 * SECOND, 10),
   typing: socketLimiter(10 * SECOND, 20),
 };

@@ -4,7 +4,7 @@ import { MongoServerError, ObjectId } from "mongodb";
 /** jest.fn() with no type argument infers `never` parameters, which breaks mockResolvedValue. */
 const mock = () => jest.fn<(...args: any[]) => any>();
 
-const messages = { insertOne: mock(), findOne: mock(), find: mock(), aggregate: mock() };
+const messages = { insertOne: mock(), findOne: mock(), find: mock(), aggregate: mock(), deleteOne: mock() };
 const areFriends = mock();
 const list = mock();
 const canonicalPair = (a: string, b: string) =>
@@ -12,7 +12,7 @@ const canonicalPair = (a: string, b: string) =>
 
 jest.unstable_mockModule("../../lib/mongo.js", () => ({ messages }));
 jest.unstable_mockModule("../friends/friends.services.js", () => ({ areFriends, canonicalPair, list }));
-const notifications = { notifyOnce: mock(), dismissFrom: mock() };
+const notifications = { notifyOnce: mock(), notify: mock(), dismissFrom: mock() };
 jest.unstable_mockModule("../notifications/notifications.services.js", () => notifications);
 const getActiveKey = mock();
 const getActiveKeys = mock();
@@ -21,11 +21,22 @@ jest.unstable_mockModule("../users/users.services.js", () => ({
   getActiveKey,
   getActiveKeys,
 }));
-const channelsService = { canView: mock(), canSend: mock(), canSendVoice: mock(), viewerIds: mock() };
+const channelsService = {
+  canView: mock(),
+  canSend: mock(),
+  canSendVoice: mock(),
+  canAttach: mock(),
+  canManageMessages: mock(),
+  viewerIds: mock(),
+  getById: mock(),
+};
 jest.unstable_mockModule("../channels/channels.services.js", () => channelsService);
 const channelKeyEpoch = { findFirst: mock(), create: mock() };
 const channelKeyShare = { findMany: mock(), findUnique: mock(), createMany: mock() };
-jest.unstable_mockModule("../../lib/prisma.js", () => ({ prisma: { channelKeyEpoch, channelKeyShare } }));
+const mediaFile = { findUnique: mock(), deleteMany: mock() };
+jest.unstable_mockModule("../../lib/prisma.js", () => ({ prisma: { channelKeyEpoch, channelKeyShare, mediaFile } }));
+const deleteObject = mock();
+jest.unstable_mockModule("../../lib/storage.js", () => ({ deleteObject }));
 
 const service = await import("./messages.services.js");
 
@@ -78,6 +89,9 @@ beforeEach(() => {
   channelsService.canView.mockResolvedValue({});
   channelsService.canSend.mockResolvedValue({});
   channelsService.canSendVoice.mockResolvedValue({});
+  channelsService.canAttach.mockResolvedValue({});
+  channelsService.canManageMessages.mockResolvedValue({});
+  messages.findOne.mockReset();
   channelsService.viewerIds.mockResolvedValue([ALICE, BOB]);
   getActiveKey.mockResolvedValue({ publicKey: "YWxpY2U=" });
 });
@@ -240,7 +254,43 @@ describe("typing", () => {
 
 describe("messages in a server channel", () => {
   const CHANNEL = "55555555-5555-5555-5555-555555555555";
-  const channelInput = { ...input, peerId: undefined, channelId: CHANNEL, keyEpoch: 2 };
+  const channelInput = {
+    ...input,
+    peerId: undefined,
+    channelId: CHANNEL,
+    keyEpoch: 2,
+    mentions: { everyone: false, userIds: [] as string[] },
+  };
+
+  describe("mentions", () => {
+    beforeEach(() => {
+      channelKeyEpoch.findFirst.mockResolvedValue({ id: "e2", epoch: 2 });
+      messages.insertOne.mockResolvedValue({});
+      channelsService.viewerIds.mockResolvedValue([ALICE, BOB, CAROL]);
+      channelsService.getById.mockResolvedValue({ id: CHANNEL, serverId: "srv", name: "geral" });
+    });
+
+    it("@todos pings every viewer except the sender", async () => {
+      await service.sendToChannel(ALICE, { ...channelInput, mentions: { everyone: true, userIds: [] } });
+      expect(notifications.notify.mock.calls.map(([n]) => n.receiverId).sort()).toEqual([BOB, CAROL]);
+      expect(notifications.notify).toHaveBeenCalledWith(
+        expect.objectContaining({ tag: "mention", serverId: "srv", channelId: CHANNEL }),
+      );
+    });
+
+    it("ignores ids that cannot view the channel, and the sender", async () => {
+      const outsider = "99999999-9999-9999-9999-999999999999";
+      await service.sendToChannel(ALICE, { ...channelInput, mentions: { everyone: false, userIds: [BOB, outsider, ALICE] } });
+      expect(notifications.notify.mock.calls.map(([n]) => n.receiverId)).toEqual([BOB]);
+    });
+
+    it("does not ping again on a retry", async () => {
+      messages.insertOne.mockRejectedValue(duplicateKey());
+      messages.findOne.mockResolvedValue(doc({ scope: "channel", channelId: CHANNEL, keyEpoch: 2 }));
+      await service.sendToChannel(ALICE, { ...channelInput, mentions: { everyone: true, userIds: [] } });
+      expect(notifications.notify).not.toHaveBeenCalled();
+    });
+  });
 
   it("stores the epoch with the ciphertext and pushes only to current viewers", async () => {
     channelKeyEpoch.findFirst.mockResolvedValue({ id: "e2", epoch: 2 });
@@ -269,6 +319,49 @@ describe("messages in a server channel", () => {
     expect(messages.insertOne).not.toHaveBeenCalled();
   });
 
+  describe("attachments", () => {
+    const MEDIA = "66666666-6666-6666-6666-666666666666";
+    const image = { ...channelInput, contentType: "image" as const, mediaId: MEDIA };
+    const uploaded = { id: MEDIA, uploaderId: ALICE, conversationId: CHANNEL, kind: "image" };
+
+    beforeEach(() => {
+      channelKeyEpoch.findFirst.mockResolvedValue({ id: "e2", epoch: 2 });
+      messages.insertOne.mockResolvedValue({});
+      mediaFile.findUnique.mockResolvedValue(uploaded);
+      messages.findOne.mockResolvedValue(null);
+    });
+
+    it("needs ATTACH_FILES and stores the media id in the clear", async () => {
+      await service.sendToChannel(ALICE, image);
+      expect(channelsService.canAttach).toHaveBeenCalledWith(CHANNEL, ALICE);
+      expect(messages.insertOne.mock.calls[0]![0]).toMatchObject({ contentType: "image", mediaId: MEDIA });
+
+      channelsService.canAttach.mockRejectedValue(Object.assign(new Error("x"), { status: 403 }));
+      await expect(service.sendToChannel(ALICE, image)).rejects.toMatchObject({ status: 403 });
+    });
+
+    it("refuses a file someone else uploaded, another conversation's, or another kind", async () => {
+      for (const wrong of [
+        { ...uploaded, uploaderId: BOB },
+        { ...uploaded, conversationId: "other" },
+        { ...uploaded, kind: "video" },
+        null,
+      ]) {
+        mediaFile.findUnique.mockResolvedValue(wrong);
+        await expect(service.sendToChannel(ALICE, image)).rejects.toMatchObject({ status: 400 });
+      }
+      expect(messages.insertOne).not.toHaveBeenCalled();
+    });
+
+    it("refuses a file already used by another message, but not a retry of the same one", async () => {
+      messages.findOne.mockResolvedValue(doc({ senderId: ALICE, clientMessageId: "another-id" }));
+      await expect(service.sendToChannel(ALICE, image)).rejects.toMatchObject({ status: 409 });
+
+      messages.findOne.mockResolvedValue(doc({ senderId: ALICE, clientMessageId: input.clientMessageId }));
+      await expect(service.sendToChannel(ALICE, image)).resolves.toBeDefined();
+    });
+  });
+
   it("refuses a message encrypted with an old epoch (409)", async () => {
     channelKeyEpoch.findFirst.mockResolvedValue({ id: "e3", epoch: 3 });
 
@@ -283,6 +376,57 @@ describe("messages in a server channel", () => {
       status: 403,
     });
     expect(messages.find).not.toHaveBeenCalled();
+  });
+});
+
+describe("remove", () => {
+  const CHANNEL = "55555555-5555-5555-5555-555555555555";
+  const id = new ObjectId();
+  const dmDoc = (over = {}) => doc({ _id: id, mediaId: "m1", ...over });
+  const channelDoc = (over = {}) => doc({ _id: id, scope: "channel", channelId: CHANNEL, senderId: BOB, ...over });
+
+  it("lets the author delete a DM: file first, then the document, and tells both sides", async () => {
+    messages.findOne.mockResolvedValue(dmDoc());
+    mediaFile.findUnique.mockResolvedValue({ storageKey: "media/k" });
+
+    const result = await service.remove(ALICE, { messageId: id.toHexString(), peerId: BOB });
+
+    expect(deleteObject).toHaveBeenCalledWith("media/k");
+    expect(messages.deleteOne).toHaveBeenCalledWith({ _id: id });
+    expect(mediaFile.deleteMany).toHaveBeenCalledWith({ where: { id: "m1" } });
+    expect(result).toEqual({ id: id.toHexString(), channelId: service.dmId(ALICE, BOB), recipients: [ALICE, BOB] });
+  });
+
+  it("does not let the peer delete a DM message, nor name the wrong peer", async () => {
+    messages.findOne.mockResolvedValue(dmDoc());
+    await expect(service.remove(BOB, { messageId: id.toHexString(), peerId: ALICE })).rejects.toMatchObject({ status: 403 });
+
+    await expect(service.remove(ALICE, { messageId: id.toHexString(), peerId: CAROL })).rejects.toMatchObject({ status: 400 });
+    expect(messages.deleteOne).not.toHaveBeenCalled();
+  });
+
+  it("lets a moderator delete a channel message and reaches every viewer", async () => {
+    messages.findOne.mockResolvedValue(channelDoc({ mediaId: undefined }));
+    channelsService.viewerIds.mockResolvedValue([ALICE, BOB, CAROL]);
+
+    const result = await service.remove(CAROL, { messageId: id.toHexString() });
+
+    expect(channelsService.canManageMessages).toHaveBeenCalledWith(CHANNEL, CAROL);
+    expect(result.recipients.sort()).toEqual([ALICE, BOB, CAROL]);
+    expect(deleteObject).not.toHaveBeenCalled();
+  });
+
+  it("refuses a member without MANAGE_MESSAGES, and keeps the message", async () => {
+    messages.findOne.mockResolvedValue(channelDoc());
+    channelsService.canManageMessages.mockRejectedValue(Object.assign(new Error("x"), { status: 403 }));
+
+    await expect(service.remove(CAROL, { messageId: id.toHexString() })).rejects.toMatchObject({ status: 403 });
+    expect(messages.deleteOne).not.toHaveBeenCalled();
+  });
+
+  it("404s a message that does not exist", async () => {
+    messages.findOne.mockResolvedValue(null);
+    await expect(service.remove(ALICE, { messageId: id.toHexString() })).rejects.toMatchObject({ status: 404 });
   });
 });
 

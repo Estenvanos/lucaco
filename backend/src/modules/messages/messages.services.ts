@@ -4,6 +4,7 @@ import { HttpError } from "../../lib/http-error.js";
 import { messages, type MessageDoc } from "../../lib/mongo.js";
 import { NOTIFICATION_TAGS } from "../../lib/constants.js";
 import { prisma } from "../../lib/prisma.js";
+import { deleteObject } from "../../lib/storage.js";
 import * as channelsService from "../channels/channels.services.js";
 import * as friendsService from "../friends/friends.services.js";
 import * as notificationsService from "../notifications/notifications.services.js";
@@ -12,6 +13,7 @@ import type {
   AddSharesInput,
   ChannelHistoryInput,
   CreateEpochInput,
+  DeleteMessageInput,
   HistoryInput,
   SendChannelMessageInput,
   SendMessageInput,
@@ -53,6 +55,7 @@ export function toPublicMessage(doc: MessageDoc) {
     ciphertext: doc.ciphertext,
     iv: doc.iv,
     keyEpoch: doc.keyEpoch,
+    mentions: doc.mentions ?? { everyone: false, userIds: [] },
     createdAt: doc.createdAt,
   };
 }
@@ -98,12 +101,15 @@ const newDoc = (
   ciphertext: input.ciphertext,
   iv: input.iv,
   keyEpoch,
+  ...("mentions" in input && { mentions: input.mentions }),
+  ...(input.mediaId && { mediaId: input.mediaId }),
   createdAt: new Date(),
   expiresAt: null,
 });
 
 export async function send(userId: string, input: SendMessageInput) {
   const channelId = await requireFriendship(userId, input.peerId);
+  await requireMedia(userId, channelId, input);
   const { message, created } = await insertOnce(newDoc(userId, channelId, "dm", input, null));
   // Only a new message notifies: an idempotent retry must not ping twice.
   if (created) {
@@ -118,6 +124,27 @@ export async function send(userId: string, input: SendMessageInput) {
   return message;
 }
 
+/**
+ * A file message may only carry a file its sender uploaded for this very conversation, of the
+ * kind the message says, that no other message uses (a retry of the same message is fine).
+ */
+async function requireMedia(
+  userId: string,
+  conversationId: string,
+  input: SendMessageInput | SendChannelMessageInput,
+) {
+  if (!input.mediaId) return;
+  const media = await prisma.mediaFile.findUnique({ where: { id: input.mediaId } });
+  const kind = input.contentType === "audio" ? "voice" : input.contentType;
+  if (media?.uploaderId !== userId || media.conversationId !== conversationId || media.kind !== kind) {
+    throw new HttpError(400, "Invalid attachment");
+  }
+  const used = await messages.findOne({ mediaId: input.mediaId });
+  if (used && !(used.senderId === userId && used.clientMessageId === input.clientMessageId)) {
+    throw new HttpError(409, "Attachment already sent");
+  }
+}
+
 /** The channel's newest key epoch, or null before anyone opened the chat. */
 const latestEpoch = (channelId: string) =>
   prisma.channelKeyEpoch.findFirst({ where: { channelId }, orderBy: { epoch: "desc" } });
@@ -127,12 +154,41 @@ const latestEpoch = (channelId: string) =>
  * who left still holds. Returns who to push it to (everyone who can read the channel now).
  */
 export async function sendToChannel(userId: string, input: SendChannelMessageInput) {
-  if (input.contentType === "audio") await channelsService.canSendVoice(input.channelId, userId);
-  else await channelsService.canSend(input.channelId, userId);
+  if (input.contentType === "text") await channelsService.canSend(input.channelId, userId);
+  else if (input.contentType === "audio") await channelsService.canSendVoice(input.channelId, userId);
+  else await channelsService.canAttach(input.channelId, userId);
   const latest = await latestEpoch(input.channelId);
   if (latest?.epoch !== input.keyEpoch) throw new HttpError(409, "Stale key epoch");
-  const { message } = await insertOnce(newDoc(userId, input.channelId, "channel", input, input.keyEpoch));
-  return { message, recipients: await channelsService.viewerIds(input.channelId) };
+  await requireMedia(userId, input.channelId, input);
+  const { message, created } = await insertOnce(newDoc(userId, input.channelId, "channel", input, input.keyEpoch));
+  const recipients = await channelsService.viewerIds(input.channelId);
+  if (created) await notifyMentions(userId, input, recipients);
+  return { message, recipients };
+}
+
+/**
+ * Only viewers of the channel can be pinged, so a made-up userId is ignored. Retries never get
+ * here (`created`). ponytail: one row per target on @todos; batch it if servers get big.
+ */
+async function notifyMentions(userId: string, input: SendChannelMessageInput, viewers: string[]) {
+  const { everyone, userIds } = input.mentions;
+  const targets = (everyone ? viewers : userIds.filter((id) => viewers.includes(id))).filter((id) => id !== userId);
+  if (targets.length === 0) return;
+  const [sender, channel] = await Promise.all([usersService.getById(userId), channelsService.getById(input.channelId)]);
+  const subtitle = `mencionou ${everyone ? "todos" : "você"} em #${channel.name}`.slice(0, 120);
+  await Promise.all(
+    [...new Set(targets)].map((receiverId) =>
+      notificationsService.notify({
+        tag: NOTIFICATION_TAGS.mention,
+        title: sender.displayName ?? sender.username,
+        subtitle,
+        ownerId: userId,
+        receiverId,
+        serverId: channel.serverId,
+        channelId: channel.id,
+      }),
+    ),
+  );
 }
 
 async function page(channelId: string, before: string | undefined, limit: number) {
@@ -176,6 +232,35 @@ export async function conversations(userId: string) {
     ])
     .toArray();
   return last.map(({ _id, lastMessageAt }) => ({ peer: byChannel.get(_id)!, lastMessageAt }));
+}
+
+/**
+ * Really deletes the message: the Mongo document, and its file (storage first, so a failure
+ * leaves the message in place and a retry finishes the job). The author may always delete their
+ * own message; in a channel, MANAGE_MESSAGES may delete anyone's. Returns who to tell: everyone
+ * who can read the conversation, plus the author.
+ */
+export async function remove(userId: string, { messageId, peerId }: DeleteMessageInput) {
+  const doc = await messages.findOne({ _id: new ObjectId(messageId) });
+  if (!doc) throw new HttpError(404, "Message not found");
+  if (doc.senderId !== userId) {
+    if (doc.scope === "dm") throw new HttpError(403, "Only the author can delete a direct message");
+    await channelsService.canManageMessages(doc.channelId, userId);
+  }
+  let recipients: string[];
+  if (doc.scope === "dm") {
+    if (!peerId || dmId(userId, peerId) !== doc.channelId) throw new HttpError(400, "Wrong conversation");
+    recipients = [userId, peerId];
+  } else {
+    recipients = [...new Set([userId, ...(await channelsService.viewerIds(doc.channelId))])];
+  }
+  if (doc.mediaId) {
+    const media = await prisma.mediaFile.findUnique({ where: { id: doc.mediaId } });
+    if (media) await deleteObject(media.storageKey);
+  }
+  await messages.deleteOne({ _id: doc._id });
+  if (doc.mediaId) await prisma.mediaFile.deleteMany({ where: { id: doc.mediaId } });
+  return { id: messageId, channelId: doc.channelId, recipients };
 }
 
 /** Opening the chat reads it: the peer's unread-message notice goes away. */

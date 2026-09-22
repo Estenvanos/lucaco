@@ -7,6 +7,7 @@ import {
   channelHistorySchema,
   channelParamsSchema,
   createEpochSchema,
+  deleteMessageSchema,
   epochParamsSchema,
   historySchema,
   peerSchema,
@@ -49,6 +50,16 @@ export async function send(io: Server, socket: Socket, payload: unknown) {
   const message = await messagesService.send(socket.data.userId, input);
   io.to(userRoom(input.peerId)).to(userRoom(socket.data.userId)).emit(SOCKET_EVENTS.messageNew, message);
   return message;
+}
+
+/** Socket handler: deletes a message and tells everyone who could read it. */
+export async function remove(io: Server, socket: Socket, payload: unknown) {
+  const { id, channelId, recipients } = await messagesService.remove(
+    socket.data.userId,
+    deleteMessageSchema.parse(payload),
+  );
+  io.to(recipients.map(userRoom)).emit(SOCKET_EVENTS.messageDeleted, { id, channelId });
+  return { id };
 }
 
 /** POST /messages/read { peerId } */

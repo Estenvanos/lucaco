@@ -12,10 +12,12 @@ export type MessageDoc = {
   scope: "dm" | "channel";
   senderId: string;
   clientMessageId: string;
-  contentType: "text" | "audio";
+  contentType: "text" | "audio" | "image" | "file" | "video";
   ciphertext: string; // base64, AES-GCM
   iv: string; // base64, random per message
   keyEpoch: number | null; // which sender key decrypts it; null for DMs
+  mentions?: { everyone: boolean; userIds: string[] }; // channel messages only
+  mediaId?: string; // the attachment (media_files.id); in the clear only so deleting the message can delete the file
   createdAt: Date;
   expiresAt: Date | null;
 };

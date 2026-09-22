@@ -4,7 +4,7 @@ import { SOCKET_EVENTS } from "../../constants/socket-events";
 import { queryClient } from "../../lib/query-client";
 import { holdSocket, socket } from "../../lib/socket";
 import type { ChatPage, StoredMessage } from "../../types/messages.types";
-import { addToCache, addToChat, markRead } from "./messages.api";
+import { addToCache, addToChat, markRead, removeFromCache } from "./messages.api";
 import { keyForEpoch } from "./messages.channel-e2e";
 import { chatKey, decryptMessage } from "./messages.e2e";
 import { messagesKeys } from "./messages.keys";
@@ -50,15 +50,22 @@ function chatSubscription(me: string, peerId: string) {
     addToChat(peerId, await decryptMessage(await chatKey(me, peerId), message));
   };
 
+  const onDeleted = ({ id, channelId }: { id: string; channelId: string }) => {
+    const data = queryClient.getQueryData<InfiniteData<ChatPage>>(messagesKeys.chat(peerId));
+    if (data?.pages[0]?.channelId === channelId) removeFromCache(messagesKeys.chat(peerId), id);
+  };
+
   subscribe = (notify: () => void) => {
     listeners.add(notify);
     socket.on(SOCKET_EVENTS.messageTyping, onTyping);
     socket.on(SOCKET_EVENTS.messageNew, onMessage);
+    socket.on(SOCKET_EVENTS.messageDeleted, onDeleted);
     const release = holdSocket();
     return () => {
       listeners.delete(notify);
       socket.off(SOCKET_EVENTS.messageTyping, onTyping);
       socket.off(SOCKET_EVENTS.messageNew, onMessage);
+      socket.off(SOCKET_EVENTS.messageDeleted, onDeleted);
       release();
     };
   };
@@ -93,11 +100,17 @@ function channelSubscription(me: string, channelId: string) {
     addToCache(messagesKeys.channel(channelId), await decryptMessage(key, message));
   };
 
+  const onDeleted = ({ id, channelId: from }: { id: string; channelId: string }) => {
+    if (from === channelId) removeFromCache(messagesKeys.channel(channelId), id);
+  };
+
   subscribe = () => {
     socket.on(SOCKET_EVENTS.messageNew, onMessage);
+    socket.on(SOCKET_EVENTS.messageDeleted, onDeleted);
     const release = holdSocket();
     return () => {
       socket.off(SOCKET_EVENTS.messageNew, onMessage);
+      socket.off(SOCKET_EVENTS.messageDeleted, onDeleted);
       release();
     };
   };

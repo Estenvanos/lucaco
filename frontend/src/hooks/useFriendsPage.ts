@@ -30,12 +30,12 @@ export function useFriendsPage() {
   const [messageLength, setMessageLength] = useState(0);
 
   const form = useZodForm(addFriendSchema, async (input) => {
-    await send.mutateAsync(input).catch((err: unknown) => {
+    const friendship = await send.mutateAsync(input).catch((err: unknown) => {
       // The nick must exist: say so in the page's language instead of the API's "User not found".
       if (err instanceof ApiError && err.status === 404) throw new ApiError(404, "Usuário não encontrado");
       throw err;
     });
-    setSentTo(input.username);
+    setSentTo(friendship.user.displayName ?? friendship.user.username);
     setMessageLength(0);
     setFormKey((key) => key + 1);
   });

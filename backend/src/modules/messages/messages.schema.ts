@@ -12,17 +12,37 @@ const messageBody = {
   ciphertext: base64.min(1).max(CIPHERTEXT_MAX_CHARS),
   iv: base64.min(8).max(64), // 12 random bytes for AES-GCM
   clientMessageId: z.string().uuid(),
-  // "audio": the ciphertext holds { mediaId, iv, ... } of an encrypted file in the media module.
-  contentType: z.enum(["text", "audio"]).default("text"),
+  // Anything but "text" carries a file from the media module: the ciphertext holds how to open it
+  // ({ mediaId, key, iv, ... }) and `mediaId` repeats the id in the clear so deleting the message
+  // can delete the file.
+  contentType: z.enum(["text", "audio", "image", "file", "video"]).default("text"),
+  mediaId: z.string().uuid().optional(),
 };
 
-export const sendMessageSchema = z.object({ peerId: z.string().uuid(), ...messageBody });
+const carriesFile = (m: { contentType: string; mediaId?: string }) => (m.contentType === "text") === !m.mediaId;
+const carriesFileError = { message: "Attach a file exactly when the message is not text", path: ["mediaId"] };
+
+export const sendMessageSchema = z
+  .object({ peerId: z.string().uuid(), ...messageBody })
+  .refine(carriesFile, carriesFileError);
 
 /** A channel message names the key epoch it was encrypted with (arquitetura-lucaco.md 7.2). */
-export const sendChannelMessageSchema = z.object({
-  channelId: z.string().uuid(),
-  keyEpoch: z.number().int().min(1),
-  ...messageBody,
+export const sendChannelMessageSchema = z
+  .object({
+    channelId: z.string().uuid(),
+    keyEpoch: z.number().int().min(1),
+    /** The text is encrypted, so the client says who it mentions (@todos = everyone). */
+    mentions: z
+      .object({ everyone: z.boolean().default(false), userIds: z.array(z.uuid()).max(20).default([]) })
+      .default({ everyone: false, userIds: [] }),
+    ...messageBody,
+  })
+  .refine(carriesFile, carriesFileError);
+
+/** `peerId` is needed for a DM only: its conversation id cannot be turned back into the peer. */
+export const deleteMessageSchema = z.object({
+  messageId: z.string().regex(/^[a-f\d]{24}$/i, "Invalid message id"),
+  peerId: z.string().uuid().optional(),
 });
 
 const cursor = {
@@ -68,6 +88,7 @@ export const peerSchema = z.object({
 export type PeerInput = z.infer<typeof peerSchema>;
 export type SendMessageInput = z.infer<typeof sendMessageSchema>;
 export type HistoryInput = z.infer<typeof historySchema>;
+export type DeleteMessageInput = z.infer<typeof deleteMessageSchema>;
 export type SendChannelMessageInput = z.infer<typeof sendChannelMessageSchema>;
 export type ChannelHistoryInput = z.infer<typeof channelHistorySchema>;
 export type CreateEpochInput = z.infer<typeof createEpochSchema>;

@@ -3,6 +3,7 @@ import { ENDPOINTS } from "../../constants/endpoints";
 import { SOCKET_EVENTS } from "../../constants/socket-events";
 import { ApiError, request } from "../../lib/api";
 import { encryptText } from "../../lib/crypto";
+import type { Mentions } from "../../lib/mentions";
 import { queryClient } from "../../lib/query-client";
 import { socket } from "../../lib/socket";
 import type {
@@ -89,9 +90,12 @@ export function addToCache(queryKey: readonly unknown[], message: ChatMessage) {
 export const addToChat = (peerId: string, message: ChatMessage) => addToCache(messagesKeys.chat(peerId), message);
 
 const sealed = (key: CryptoKey, out: Outgoing) =>
-  encryptText(key, out.audio ? JSON.stringify(out.audio) : out.text);
+  encryptText(key, out.audio ?? out.attachment ? JSON.stringify(out.audio ?? out.attachment) : out.text);
 
-const contentType = (out: Outgoing): MessageContentType => (out.audio ? "audio" : "text");
+const contentType = (out: Outgoing): MessageContentType => (out.audio ? "audio" : (out.attachment?.kind ?? "text"));
+
+/** The file's id in the clear, so the API can delete it together with the message. */
+const mediaId = (out: Outgoing) => out.audio?.mediaId ?? out.attachment?.mediaId;
 
 async function emit(payload: object) {
   const ack = await socket
@@ -104,25 +108,53 @@ async function emit(payload: object) {
 /** Encrypts in the browser and sends through the user's socket; the server only sees ciphertext. */
 export async function sendMessage(me: string, peerId: string, out: Outgoing) {
   const key = await chatKey(me, peerId);
-  const stored = await emit({ peerId, contentType: contentType(out), ...(await sealed(key, out)) });
+  const stored = await emit({ peerId, contentType: contentType(out), mediaId: mediaId(out), ...(await sealed(key, out)) });
   addToChat(peerId, { id: stored.id, senderId: me, ...out, createdAt: stored.createdAt });
   queryClient.invalidateQueries({ queryKey: messagesKeys.conversations() });
 }
 
 /** Same for a server channel, with the current epoch key; a rotation in between retries once. */
-export async function sendChannelMessage(me: string, channelId: string, out: Outgoing, retry = true): Promise<void> {
+export async function sendChannelMessage(
+  me: string,
+  channelId: string,
+  out: Outgoing,
+  mentions?: Mentions,
+  retry = true,
+): Promise<void> {
   const ring = await channelKeyring(me, channelId, !retry);
   try {
     const stored = await emit({
       channelId,
       keyEpoch: ring.current,
       contentType: contentType(out),
+      mediaId: mediaId(out),
+      mentions,
       ...(await sealed(ring.keys.get(ring.current)!, out)),
     });
     addToCache(messagesKeys.channel(channelId), { id: stored.id, senderId: me, ...out, createdAt: stored.createdAt });
   } catch (err) {
     // The API's 409 for a message sealed with an epoch someone just rotated away from.
-    if (retry && err instanceof ApiError && err.message === "Stale key epoch") return sendChannelMessage(me, channelId, out, false);
+    if (retry && err instanceof ApiError && err.message === "Stale key epoch") return sendChannelMessage(me, channelId, out, mentions, false);
     throw err;
   }
+}
+
+/** Drops a message from an open chat, once (the ack and the broadcast both deliver it). */
+export function removeFromCache(queryKey: readonly unknown[], messageId: string) {
+  queryClient.setQueryData<InfiniteData<ChatPage>>(queryKey, (data) =>
+    data && {
+      ...data,
+      pages: data.pages.map((p) => ({ ...p, messages: p.messages.filter((m) => m.id !== messageId) })),
+    },
+  );
+}
+
+/**
+ * Deletes for real (the API removes the message and its file, then tells everyone who can read
+ * it). `peerId` is needed in a DM only. The chat updates when the ack arrives.
+ */
+export async function deleteMessage(queryKey: readonly unknown[], messageId: string, peerId?: string) {
+  const ack = await socket.timeout(10_000).emitWithAck(SOCKET_EVENTS.messageDelete, { messageId, peerId });
+  if ("error" in ack) throw new ApiError(400, String(ack.error));
+  removeFromCache(queryKey, messageId);
 }

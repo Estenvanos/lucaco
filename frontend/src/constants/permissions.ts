@@ -37,6 +37,11 @@ export const CHANNEL_PERMISSION_GROUPS: PermissionGroup[] = [
         label: "Enviar mensagens de voz",
         description: 'Permite mandar áudios gravados neste canal. Também requer "Enviar mensagens".',
       },
+      {
+        id: "ATTACH_FILES",
+        label: "Anexar arquivos",
+        description: 'Permite mandar imagens, documentos e vídeos neste canal. Também requer "Enviar mensagens".',
+      },
     ],
   },
   {

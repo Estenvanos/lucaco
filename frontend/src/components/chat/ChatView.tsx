@@ -29,6 +29,8 @@ export function ChatView({ peerId }: ChatViewProps) {
             hasOlder={chat.hasOlder}
             loadingOlder={chat.loadingOlder}
             onLoadOlder={chat.loadOlder}
+            canDelete={chat.canDelete}
+            onDelete={chat.onDelete}
           />
         )}
         <Composer {...chat.composer} />

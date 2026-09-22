@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { LIMITS } from "../constants/limits";
 import { ApiError } from "../lib/api";
 import { channelFormSchema } from "../schemas/servers.schema";
 import {
@@ -63,9 +64,11 @@ export function useChannelSettings({
   const [tab, setTab] = useState<ChannelSettingsTab>("overview");
   const [name, setName] = useState(channel?.name ?? "");
   const [topic, setTopic] = useState(channel?.topic ?? "");
+  const [userLimit, setUserLimit] = useState(String(channel?.userLimit ?? LIMITS.voiceUsers.max));
   const [draft, setDraft] = useState(() => toDraft(initial));
   const [selected, setSelected] = useState<OverwriteTarget>({ kind: "role", id: everyoneRoleId });
   const [nameError, setNameError] = useState<string | null>(null);
+  const [userLimitError, setUserLimitError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const everyoneKey = keyOf({ kind: "role", id: everyoneRoleId });
@@ -131,13 +134,20 @@ export function useChannelSettings({
     setError(err instanceof ApiError ? err.message : "Não foi possível salvar o canal");
 
   const save = async () => {
-    const parsed = channelFormSchema.safeParse({ name, topic });
+    const parsed = channelFormSchema.safeParse({
+      name,
+      topic,
+      ...(type === "voice" && { userLimit: userLimit.trim() === "" ? NaN : Number(userLimit) }),
+    });
     if (!parsed.success) {
       setTab("overview");
-      setNameError(parsed.error.issues[0]?.message ?? "Nome inválido");
+      const issue = (field: string) => parsed.error.issues.find((i) => i.path[0] === field)?.message ?? null;
+      setNameError(issue("name"));
+      setUserLimitError(issue("userLimit"));
       return;
     }
     setNameError(null);
+    setUserLimitError(null);
     setError(null);
     try {
       if (!channel) {
@@ -155,7 +165,13 @@ export function useChannelSettings({
         onCreated(created);
         return;
       }
-      if (canManageChannel && (parsed.data.name !== channel.name || (parsed.data.topic ?? null) !== channel.topic)) {
+      const { name: newName, topic: newTopic, userLimit: newLimit } = parsed.data;
+      if (
+        canManageChannel &&
+        (newName !== channel.name ||
+          (newTopic ?? null) !== channel.topic ||
+          (newLimit ?? channel.userLimit) !== channel.userLimit)
+      ) {
         await update.mutateAsync(parsed.data);
       }
       const pending = changes();
@@ -175,6 +191,9 @@ export function useChannelSettings({
     setName,
     topic,
     setTopic,
+    userLimit,
+    setUserLimit,
+    userLimitError,
     nameError,
     error,
     isPrivate,

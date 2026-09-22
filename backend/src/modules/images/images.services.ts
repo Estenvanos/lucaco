@@ -7,12 +7,13 @@ import { IMAGE_PRESETS, type ImageFile, type ImageFolder } from "./images.schema
 // Keeps decompression bombs out: 4096x4096 is plenty for any preset.
 const MAX_INPUT_PIXELS = 4096 * 4096;
 
-export async function toWebp(file: ImageFile, folder: ImageFolder) {
+export async function toWebp(file: Pick<ImageFile, "buffer"> & Partial<ImageFile>, folder: ImageFolder) {
   const { width, height, quality } = IMAGE_PRESETS[folder];
+  const fit = folder === "attachments" ? "inside" : "cover";
   try {
     return await sharp(file.buffer, { limitInputPixels: MAX_INPUT_PIXELS }) // first frame only for gif
       .rotate() // apply EXIF orientation; metadata (EXIF/GPS) is dropped on output
-      .resize(width, height, { fit: "cover" })
+      .resize(width, height, { fit, withoutEnlargement: fit === "inside" })
       .webp({ quality })
       .toBuffer();
   } catch {

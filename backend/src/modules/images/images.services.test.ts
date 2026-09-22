@@ -42,6 +42,17 @@ describe("toWebp", () => {
     expect(meta.height).toBe(IMAGE_PRESETS.servers.height);
   });
 
+  it("shrinks a chat image to fit without cropping, and never enlarges a small one", async () => {
+    const wide = await sharp({ create: { width: 4000, height: 1000, channels: 3, background: "#123456" } }).png().toBuffer();
+    const small = await sharp({ create: { width: 100, height: 50, channels: 3, background: "#123456" } }).png().toBuffer();
+
+    const big = await sharp(await images.toWebp({ buffer: wide }, "attachments")).metadata();
+    const kept = await sharp(await images.toWebp({ buffer: small }, "attachments")).metadata();
+
+    expect([big.width, big.height]).toEqual([IMAGE_PRESETS.attachments.width, 512]);
+    expect([kept.width, kept.height]).toEqual([100, 50]);
+  });
+
   // EXIF can carry GPS coordinates; the output must not keep it.
   it("drops metadata such as EXIF", async () => {
     const withExif = await sharp({ create: { width: 64, height: 64, channels: 3, background: "#123456" } })

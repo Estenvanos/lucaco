@@ -140,3 +140,15 @@ export function formatDuration(ms: number) {
   const seconds = Math.round(ms / 1000);
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
+
+/**
+ * Asks before deleting a message, then runs `remove`; a failure is shown to the user.
+ * ponytail: native confirm/alert — swap for a Modal if the look matters.
+ */
+export function confirmDelete(remove: () => Promise<void>) {
+  if (!confirm("Excluir esta mensagem para todos? Isso não pode ser desfeito.")) return;
+  remove().catch((err: unknown) => alert(err instanceof Error ? err.message : "Não foi possível excluir a mensagem"));
+}
+
+export const formatBytes = (bytes: number) =>
+  bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;

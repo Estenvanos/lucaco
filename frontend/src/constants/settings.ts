@@ -21,4 +21,5 @@ export const NOTIFICATION_TAG_LABEL: Record<NotificationTag, string> = {
   [NOTIFICATION_TAGS.friendRequest]: "Pedidos de amizade",
   [NOTIFICATION_TAGS.friendAccepted]: "Pedidos aceitos",
   [NOTIFICATION_TAGS.newMessage]: "Novas mensagens",
+  [NOTIFICATION_TAGS.mention]: "Menções",
 };

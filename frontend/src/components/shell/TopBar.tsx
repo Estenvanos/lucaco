@@ -5,7 +5,7 @@ import { NotificationsPanel } from "../notifications/NotificationsPanel";
 export function TopBar() {
   const panel = useNotificationsPanel();
   // Muted: the bell stays usable, just without the counter.
-  const count = panel.muted ? 0 : panel.notifications.length;
+  const count = panel.muted ? 0 : panel.badgeCount;
 
   return (
     <header className="top-bar">

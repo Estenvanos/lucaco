@@ -45,7 +45,7 @@ export const updateSettingsSchema = z
     notificationsMuted: z.boolean().optional(),
     hiddenNotificationTags: z
       .array(z.enum(Object.values(NOTIFICATION_TAGS)))
-      .max(3)
+      .max(4)
       .transform((tags) => [...new Set(tags)])
       .optional(),
     audioInputId: deviceIdSchema,

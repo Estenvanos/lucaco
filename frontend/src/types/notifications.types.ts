@@ -9,6 +9,9 @@ export type AppNotification = {
   title: string;
   /** For a friend request, the sender's optional note. */
   subtitle: string | null;
+  /** Mentions only: the channel to open. */
+  serverId?: string | null;
+  channelId?: string | null;
   createdAt: string;
   /** Who caused it. */
   owner: UserProfile;

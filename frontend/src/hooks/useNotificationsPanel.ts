@@ -15,6 +15,9 @@ export function useNotificationsPanel() {
   const { data: notifications = [] } = useNotifications(
     (n) => n.tag !== NOTIFICATION_TAGS.friendRequest && !hiddenNotificationTags.includes(n.tag),
   );
+  // The badge counts friend requests too, even though they open in the friends inbox, not here:
+  // otherwise a pending request gives no signal at all outside that page.
+  const { data: countable = [] } = useNotifications((n) => !hiddenNotificationTags.includes(n.tag));
   const dismiss = useDismissNotification();
 
   return {
@@ -22,6 +25,7 @@ export function useNotificationsPanel() {
     toggle: () => setOpen(!open),
     close: () => setOpen(false),
     notifications,
+    badgeCount: countable.length,
     muted: notificationsMuted,
     busy: dismiss.isPending ? dismiss.variables : null,
     onDismiss: (id: string) => dismiss.mutate(id),
@@ -30,6 +34,8 @@ export function useNotificationsPanel() {
       setOpen(false);
       if (notification.tag === NOTIFICATION_TAGS.friendAccepted || notification.tag === NOTIFICATION_TAGS.newMessage) {
         navigate(ROUTES.conversation(notification.owner.id));
+      } else if (notification.tag === NOTIFICATION_TAGS.mention && notification.serverId && notification.channelId) {
+        navigate(ROUTES.channel(notification.serverId, notification.channelId));
       }
     },
   };

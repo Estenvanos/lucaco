@@ -14,13 +14,32 @@ export type StoredMessage = {
   createdAt: string;
 };
 
-export type MessageContentType = "text" | "audio";
+export type MessageContentType = "text" | "audio" | AttachmentKind;
 
 /**
  * What an audio message's ciphertext decrypts to. The file has its own random key, carried here
  * (inside the E2E envelope), so playing it needs nothing from the conversation.
  */
 export type AudioRef = { mediaId: string; key: string; iv: string; mime: string; durationMs: number };
+
+export type AttachmentKind = "image" | "file" | "video";
+
+/**
+ * What an image, document or video message's ciphertext decrypts to. A document or video is
+ * encrypted with a key of its own, carried here (`key` + `iv`). An image has neither: the API
+ * converts it to webp, so it is stored in the clear.
+ */
+export type AttachmentRef = {
+  kind: AttachmentKind;
+  mediaId: string;
+  mime: string;
+  name: string;
+  size: number;
+  key?: string;
+  iv?: string;
+  /** Video only: its first frame as a tiny data URL, so the card shows something before playing. */
+  thumb?: string;
+};
 
 export type HistoryResponse = {
   channelId: string;
@@ -38,6 +57,7 @@ export type ChatMessage = {
   senderId: string;
   text: string | null;
   audio: AudioRef | null;
+  attachment: AttachmentRef | null;
   createdAt: string;
 };
 
@@ -71,11 +91,27 @@ export type Conversation = {
   lastMessageAt: string;
 };
 
-/** What the composer sends: text, or a voice message already uploaded (its reference). */
-export type Outgoing = { text: string; audio: null } | { text: ""; audio: AudioRef };
+/** What the composer sends: text, or a voice message / file already uploaded (its reference). */
+export type Outgoing =
+  | { text: string; audio: null; attachment: null }
+  | { text: ""; audio: AudioRef; attachment: null }
+  | { text: ""; audio: null; attachment: AttachmentRef };
 
-/** Where a voice message is uploaded: the same conversation the message goes to. */
+/** Where a voice message or file is uploaded: the same conversation the message goes to. */
 export type MediaTarget = { peerId: string } | { channelId: string };
+
+/** A file picked (or pasted) and waiting in the composer, with a local preview. */
+export type PendingFile = { file: File; kind: AttachmentKind; url: string; thumb: string | null };
+
+/** The paperclip: a picked file waits in the composer (preview) until the user sends or removes it. */
+export type Attacher = {
+  pending: PendingFile | null;
+  sending: boolean;
+  error: string | null;
+  pick: (file: File) => void;
+  clear: () => void;
+  send: () => void;
+};
 
 export type RecorderState = "idle" | "recording" | "sending";
 

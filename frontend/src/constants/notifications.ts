@@ -3,4 +3,5 @@ export const NOTIFICATION_TAGS = {
   friendRequest: "friend_request",
   friendAccepted: "friend_accepted",
   newMessage: "new_message",
+  mention: "mention",
 } as const;

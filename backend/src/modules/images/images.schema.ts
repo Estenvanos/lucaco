@@ -7,13 +7,16 @@ export const IMAGE_PRESETS = {
   avatars: { width: 512, height: 512, quality: 80 },
   servers: { width: 256, height: 256, quality: 80 },
   banners: { width: 960, height: 400, quality: 78 }, // discovery card background, ~2.4:1
+  attachments: { width: 2048, height: 2048, quality: 80 }, // chat images: shrunk to fit, never cropped or enlarged
 } as const;
 
 export type ImageFolder = keyof typeof IMAGE_PRESETS;
 
+export const imageMimeSchema = z.enum(["image/png", "image/jpeg", "image/webp", "image/gif", "image/avif"]);
+
 export const imageFileSchema = z.object(
   {
-    mimetype: z.enum(["image/png", "image/jpeg", "image/webp", "image/gif", "image/avif"]),
+    mimetype: imageMimeSchema,
     size: z.number().max(IMAGE_MAX_BYTES),
     buffer: z.instanceof(Buffer),
   },

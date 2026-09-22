@@ -1,7 +1,7 @@
 import { ENDPOINTS } from "../../constants/endpoints";
 import { ApiError, request } from "../../lib/api";
 import { decryptText, deriveChatKey, exportPublicKey, loadKeyPair } from "../../lib/crypto";
-import type { AudioRef, ChatMessage, PublishedKey, StoredMessage } from "../../types/messages.types";
+import type { AttachmentRef, AudioRef, ChatMessage, PublishedKey, StoredMessage } from "../../types/messages.types";
 
 let published: Promise<CryptoKeyPair> | null = null;
 
@@ -56,18 +56,22 @@ export function chatKey(me: string, peerId: string) {
 export async function decryptMessage(key: CryptoKey | null, message: StoredMessage): Promise<ChatMessage> {
   const plain = key && (await decryptText(key, message.ciphertext, message.iv));
   let audio: AudioRef | null = null;
-  if (plain && message.contentType === "audio") {
+  let attachment: AttachmentRef | null = null;
+  if (plain && message.contentType !== "text") {
     try {
-      audio = JSON.parse(plain) as AudioRef;
+      const ref: unknown = JSON.parse(plain);
+      if (message.contentType === "audio") audio = ref as AudioRef;
+      else attachment = { ...(ref as AttachmentRef), kind: message.contentType };
     } catch {
-      audio = null;
+      // stays null: shown as undecryptable
     }
   }
   return {
     id: message.id,
     senderId: message.senderId,
-    text: audio ? "" : plain,
+    text: audio || attachment ? "" : plain,
     audio,
+    attachment,
     createdAt: message.createdAt,
   };
 }

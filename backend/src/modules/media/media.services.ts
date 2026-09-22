@@ -2,24 +2,26 @@ import { randomUUID } from "node:crypto";
 import { HttpError } from "../../lib/http-error.js";
 import { prisma } from "../../lib/prisma.js";
 import { putObject, signedGetUrl } from "../../lib/storage.js";
+import * as imagesService from "../images/images.services.js";
 import * as channelsService from "../channels/channels.services.js";
 import * as friendsService from "../friends/friends.services.js";
 import * as messagesService from "../messages/messages.services.js";
-import type { MediaFileInput, UploadTarget } from "./media.schema.js";
+import type { MediaFileInput, MediaKind, UploadTarget } from "./media.schema.js";
 
 /** Short: the link only has to live until the browser downloads the file. */
 const URL_TTL_SECONDS = 300;
 
 /**
- * Stores an attachment the browser already encrypted (voice messages). Unlike `images`, the bytes
- * never go through sharp: they are ciphertext. Same rules as sending the message itself.
+ * Stores an attachment for a conversation, under the same rules as sending the message itself.
+ * voice/file/video are ciphertext the browser already encrypted and are kept as they are. An
+ * image arrives in the clear and is converted to webp here with the `images` module's sharp.
  * ponytail: a file whose message never gets sent stays orphaned — the jobs module sweeps it.
  */
-export async function upload(userId: string, target: UploadTarget, file: MediaFileInput) {
+export async function upload(userId: string, target: UploadTarget, kind: MediaKind, file: MediaFileInput) {
   let scope: "dm" | "channel";
   let conversationId: string;
   if ("channelId" in target) {
-    await channelsService.canSendVoice(target.channelId, userId);
+    await (kind === "voice" ? channelsService.canSendVoice : channelsService.canAttach)(target.channelId, userId);
     scope = "channel";
     conversationId = target.channelId;
   } else {
@@ -31,11 +33,14 @@ export async function upload(userId: string, target: UploadTarget, file: MediaFi
   }
   const id = randomUUID();
   const storageKey = `media/${conversationId}/${id}`;
-  await putObject(storageKey, file.buffer, "application/octet-stream");
+  const image = kind === "image";
+  const body = image ? await imagesService.toWebp({ buffer: file.buffer }, "attachments") : file.buffer;
+  const mime = image ? "image/webp" : "application/octet-stream";
+  await putObject(storageKey, body, mime);
   await prisma.mediaFile.create({
-    data: { id, uploaderId: userId, scope, conversationId, storageKey, sizeBytes: file.size },
+    data: { id, uploaderId: userId, scope, conversationId, storageKey, kind, sizeBytes: body.length },
   });
-  return { id };
+  return { id, mime, size: body.length };
 }
 
 /** A short-lived download link, for whoever can read the conversation the file was sent to. */

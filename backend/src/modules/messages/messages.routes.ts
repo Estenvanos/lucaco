@@ -19,6 +19,7 @@ messagesRouter.post("/channels/:channelId/keys/:epoch/shares", requireAuth, mess
 export function registerMessagesSocket(io: Server) {
   io.on("connection", (socket) => {
     on(io, socket, SOCKET_EVENTS.messageSend, messagesController.send, socketLimits.messageSend);
+    on(io, socket, SOCKET_EVENTS.messageDelete, messagesController.remove, socketLimits.messageDelete);
     on(io, socket, SOCKET_EVENTS.messageTyping, messagesController.typing, socketLimits.typing);
   });
 }

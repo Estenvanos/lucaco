@@ -1,10 +1,13 @@
 import { ApiError } from "../lib/api";
-import { chatRows } from "../lib/utils";
+import { chatRows, confirmDelete } from "../lib/utils";
 import { useFriends } from "../services/friends/friends.api";
-import { sendMessage, useChat } from "../services/messages/messages.api";
-import { uploadVoice } from "../services/messages/messages.media";
+import { deleteMessage, sendMessage, useChat } from "../services/messages/messages.api";
+import { messagesKeys } from "../services/messages/messages.keys";
+import { uploadAttachment, uploadVoice } from "../services/messages/messages.media";
 import { sendTyping, useChatLive } from "../services/messages/messages.socket";
+import type { ChatRow } from "../types/messages.types";
 import type { ChatPerson } from "../types/ui.types";
+import { useAttacher } from "./useAttacher";
 import { useAuth } from "./useAuth";
 import { useComposer } from "./useComposer";
 import { useVoiceRecorder } from "./useVoiceRecorder";
@@ -19,7 +22,11 @@ export function useConversation(peerId: string) {
   const composer = useComposer((out) => sendMessage(me.id, peerId, out));
   const voice = useVoiceRecorder(me.settings.audioInputId, async (recording, durationMs) => {
     const audio = await uploadVoice({ peerId }, recording, durationMs);
-    await sendMessage(me.id, peerId, { text: "", audio });
+    await sendMessage(me.id, peerId, { text: "", audio, attachment: null });
+  });
+  const attacher = useAttacher(async (file, thumb) => {
+    const attachment = await uploadAttachment({ peerId }, file, thumb);
+    await sendMessage(me.id, peerId, { text: "", audio: null, attachment });
   });
 
   const messages = chat.data?.pages.flatMap((page) => page.messages) ?? [];
@@ -41,11 +48,15 @@ export function useConversation(peerId: string) {
     loadingOlder: chat.isFetchingNextPage,
     loadOlder: () => chat.fetchNextPage(),
     peerTyping,
+    /** In a DM only the author may delete. */
+    canDelete: (row: ChatRow) => row.senderId === me.id,
+    onDelete: (row: ChatRow) => confirmDelete(() => deleteMessage(messagesKeys.chat(peerId), row.id, peerId)),
     composer: {
       ...composer,
       placeholder: `Conversar com @${peerName}`,
       label: `Mensagem para ${peerName}`,
       voice,
+      attacher,
       onInput: () => sendTyping(peerId),
     },
   };

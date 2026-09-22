@@ -9,6 +9,7 @@ import {
   ringDelta,
   scorePassword,
 } from "./utils.ts";
+import { extractMentions, splitMentions } from "./mentions.ts";
 
 const level = (password: string) => scorePassword(password).level;
 
@@ -70,3 +71,17 @@ assert.deepEqual(rows.map((r) => r.id), ["a", "b", "c", "d"], "oldest first on s
 assert.deepEqual(rows.map((r) => r.first), [true, false, true, true], "same sender within 5 min shares a header");
 assert.ok(rows[0].day && !rows[1].day && !rows[2].day && rows[3].day, "a divider on each new day only");
 console.log("chatRows: ok");
+
+const people = [
+  { userId: "1", name: "Ana" },
+  { userId: "2", name: "Ana Maria" },
+  { userId: "3", name: "Bob" },
+];
+assert.deepEqual(extractMentions("oi @todos", people), { everyone: true, userIds: [] });
+assert.deepEqual(extractMentions("@Ana Maria e @bob!", people), { everyone: false, userIds: ["2", "3"] }, "longest name, any case");
+assert.deepEqual(extractMentions("mail a@bob.com, @Anabel", people), { everyone: false, userIds: [] }, "not glued to words");
+assert.deepEqual(
+  splitMentions("oi @Bob, tudo?", ["Bob"]).map((p) => [p.text, p.mention]),
+  [["oi ", false], ["@Bob", true], [", tudo?", false]],
+);
+console.log("mentions: ok");

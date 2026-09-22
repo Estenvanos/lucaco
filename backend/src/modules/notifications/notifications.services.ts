@@ -11,6 +11,9 @@ type NewNotification = {
   subtitle?: string;
   ownerId: string;
   receiverId: string;
+  /** Where a mention lives, so the bell can open the channel. */
+  serverId?: string;
+  channelId?: string;
 };
 
 /** The owner goes out as a public profile (no email), so the inbox can show who it came from. */
@@ -21,6 +24,8 @@ async function toPublic(notifications: Notification[]) {
     tag: n.tag,
     title: n.title,
     subtitle: n.subtitle,
+    serverId: n.serverId,
+    channelId: n.channelId,
     createdAt: n.createdAt,
     owner: profiles.get(n.ownerId)!,
   }));

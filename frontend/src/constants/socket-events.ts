@@ -14,6 +14,8 @@ export const SOCKET_EVENTS = {
   voiceViewer: "voice:viewer",
   messageSend: "message:send",
   messageNew: "message:new",
+  messageDelete: "message:delete",
+  messageDeleted: "message:deleted",
   messageTyping: "message:typing",
   notificationNew: "notification:new",
   notificationRemoved: "notification:removed",

@@ -37,6 +37,10 @@ export function ChannelView({ channel, onClose }: ChannelViewProps) {
           hasOlder={chat.hasOlder}
           loadingOlder={chat.loadingOlder}
           onLoadOlder={chat.loadOlder}
+          mentionNames={chat.mentionNames}
+          myName={chat.myName}
+          canDelete={chat.canDelete}
+          onDelete={chat.onDelete}
         />
       )}
       <Composer {...chat.composer} />

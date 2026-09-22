@@ -1,7 +1,7 @@
 import type { ButtonHTMLAttributes, ChangeEvent, FormEvent, InputHTMLAttributes, KeyboardEvent, ReactNode } from "react";
 import type { ZodForm } from "./form.types";
 import type { AddFriendInput, FriendsTab, PublicFriendship } from "./friends.types";
-import type { AudioRef, ChatRow, Conversation, VoiceRecorder } from "./messages.types";
+import type { Attacher, AttachmentRef, AudioRef, ChatRow, Conversation, VoiceRecorder } from "./messages.types";
 import type { SettingsSection, UserProfile } from "./users.types";
 import type { AppNotification } from "./notifications.types";
 import type { PasswordStrength } from "./password.types";
@@ -173,6 +173,12 @@ export type MessageListProps = {
   hasOlder: boolean;
   loadingOlder: boolean;
   onLoadOlder: () => void;
+  /** Server channels: names to highlight as @mentions, and the viewer's own. */
+  mentionNames?: string[];
+  myName?: string;
+  /** Whether the viewer may delete this message (their own, or MANAGE_MESSAGES in a channel). */
+  canDelete: (row: ChatRow) => boolean;
+  onDelete: (row: ChatRow) => void;
 };
 
 export type ComposerProps = {
@@ -184,12 +190,18 @@ export type ComposerProps = {
   error: string | null;
   /** The microphone button; null when voice messages are not allowed. */
   voice: VoiceRecorder | null;
+  /** The paperclip; null when attaching files is not allowed. */
+  attacher: Attacher | null;
+  /** Server channels: names offered when typing `@`. */
+  mentionNames?: string[];
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onInput?: () => void;
   onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
 };
 
 export type AudioMessageProps = { audio: AudioRef };
+
+export type AttachmentMessageProps = { attachment: AttachmentRef };
 
 export type ProfileCardProps = { user: UserProfile };
 
@@ -256,7 +268,7 @@ export type StreamViewersProps = { viewers: ChatPerson[] };
 
 export type VoiceMediaProps = { item: VoiceStream; outputId: string | null; deafened: boolean; audio: UserAudio | undefined };
 
-export type MemberListProps = { server: PublicServer; members: ServerMember[] };
+export type MemberListProps = { server: PublicServer; members: ServerMember[]; currentUserId: string };
 
 /** Who a right-click menu is about. `member` (in a server) adds the moderation items. */
 export type UserActionsMenuProps = {

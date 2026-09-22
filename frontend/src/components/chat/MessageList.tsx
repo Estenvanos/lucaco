@@ -1,5 +1,8 @@
+import { Trash2 } from "lucide-react";
+import { EVERYONE, splitMentions } from "../../lib/mentions";
 import { formatDateTime } from "../../lib/utils";
 import type { MessageListProps } from "../../types/ui.types";
+import { AttachmentMessage } from "./AttachmentMessage";
 import { AudioMessage } from "./AudioMessage";
 import { ChatAvatar } from "./ChatAvatar";
 
@@ -7,7 +10,19 @@ import { ChatAvatar } from "./ChatAvatar";
  * column-reverse on the scroller keeps the view pinned to the newest message as rows arrive,
  * with no scroll effect: the browser anchors to the bottom by itself.
  */
-export function MessageList({ rows, authorOf, intro, typingName, hasOlder, loadingOlder, onLoadOlder }: MessageListProps) {
+export function MessageList({
+  rows,
+  authorOf,
+  intro,
+  typingName,
+  hasOlder,
+  loadingOlder,
+  onLoadOlder,
+  mentionNames,
+  myName,
+  canDelete,
+  onDelete,
+}: MessageListProps) {
   return (
     <div className="chat-scroll">
       <div className="chat-messages">
@@ -44,12 +59,36 @@ export function MessageList({ rows, authorOf, intro, typingName, hasOlder, loadi
                   )}
                   {row.audio ? (
                     <AudioMessage audio={row.audio} />
+                  ) : row.attachment ? (
+                    <AttachmentMessage attachment={row.attachment} />
                   ) : row.text === null ? (
                     <p className="chat-undecryptable">Não foi possível decifrar esta mensagem.</p>
                   ) : (
-                    <p>{row.text}</p>
+                    <p>
+                      {mentionNames
+                        ? splitMentions(row.text, mentionNames).map((part, i) =>
+                            part.mention ? (
+                              <mark
+                                key={i}
+                                className="mention"
+                                data-me={[EVERYONE, myName?.toLowerCase()].includes(part.text.slice(1).toLowerCase())}
+                              >
+                                {part.text}
+                              </mark>
+                            ) : (
+                              part.text
+                            ),
+                          )
+                        : row.text}
+                    </p>
                   )}
                 </div>
+                {canDelete(row) && (
+                  <button type="button" className="chat-message-delete" title="Excluir mensagem" onClick={() => onDelete(row)}>
+                    <Trash2 aria-hidden />
+                    <span className="sr-only">Excluir mensagem</span>
+                  </button>
+                )}
               </article>
             </div>
           );

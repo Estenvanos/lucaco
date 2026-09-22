@@ -14,7 +14,7 @@ export function useComposer(send: (out: Outgoing) => Promise<void>) {
     if (!text || sending) return;
     setSending(true);
     setError(null);
-    send({ text, audio: null })
+    send({ text, audio: null, attachment: null })
       .then(() => form.reset())
       .catch((err: unknown) => setError(err instanceof ApiError ? err.message : "Mensagem não enviada"))
       .finally(() => setSending(false));

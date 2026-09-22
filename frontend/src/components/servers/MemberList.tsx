@@ -4,7 +4,7 @@ import { openContextMenu } from "../../lib/context-menu";
 import { ChatAvatar } from "../chat/ChatAvatar";
 import { UserActionsMenu } from "../shared/UserActionsMenu";
 
-export function MemberList({ server, members }: MemberListProps) {
+export function MemberList({ server, members, currentUserId }: MemberListProps) {
   return (
     <aside className="server-members" aria-label="Membros">
       <h2>Membros — {members.length}</h2>
@@ -15,8 +15,9 @@ export function MemberList({ server, members }: MemberListProps) {
               <ChatAvatar user={{ ...member, id: member.userId }} />
               <span className="status-dot" data-status={member.status} title={USER_STATUS_LABEL[member.status]} />
             </span>
-            <span className="server-member-name">
+            <span className="server-member-name" data-admin={member.isAdmin || undefined}>
               <strong>{member.nickname ?? member.displayName ?? member.username}</strong>
+              {member.userId === currentUserId && <span className="server-member-you">(você)</span>}
             </span>
             <UserActionsMenu
               user={{
