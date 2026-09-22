@@ -23,9 +23,11 @@ export function ServerWheel({
   const wheel = useServerWheel(servers.length + 1, activeIndex, (index) => {
     if (index > 0) onOpenServer(servers[index - 1].id);
   });
-  const { slots, dragging, locked, toggleLock, select, handlers } = wheel;
+  const { slots, dragging, locked, toggleLock, select, wasDrag, handlers } = wheel;
 
   const open = (index: number) => {
+    // A drag that ends back over the same button still fires a native click; don't also navigate.
+    if (wasDrag()) return;
     select(index);
     if (index === 0) onAdd();
     else onOpenServer(servers[index - 1].id);

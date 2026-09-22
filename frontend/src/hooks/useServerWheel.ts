@@ -8,6 +8,7 @@ const RADIUS_X = 42;
 const RADIUS_Y = 190;
 const EDGE = 1.45; // past this angle the item has left the arc
 const DRAG_PX_PER_STEP = 62;
+const CLICK_DRAG_THRESHOLD = 4; // px of pointer travel before a press counts as a drag, not a click
 
 const railX = (angle: number) => -RADIUS_X * (1 - Math.cos(angle));
 const railY = (angle: number) => RADIUS_Y * Math.sin(angle);
@@ -49,8 +50,11 @@ export function useServerWheel(
 ): WheelControls {
   const [offset, setOffset] = useState(focusIndex);
   const [dragging, setDragging] = useState(false);
-  const [locked, setLocked] = useState(false);
+  const [locked, setLocked] = useState(true);
   const drag = useRef<{ y: number; offset: number } | null>(null);
+  // Set once pointer travel crosses the threshold; read by the item's onClick so a drag that
+  // ends back over the same button doesn't also fire as a click.
+  const moved = useRef(false);
 
   // Route changed (opened a server, just created one): bring it to the centre. Adjusting state
   // while rendering is React's own answer to "derive from props" — an effect would render twice.
@@ -74,6 +78,7 @@ export function useServerWheel(
     locked,
     toggleLock: () => setLocked(!locked),
     select: (index: number) => setOffset(offset + ringDelta(index, offset, count)),
+    wasDrag: () => moved.current,
     handlers: {
       // No wheel handler on purpose: the ring turns only while the pointer is held down, so
       // scrolling the page over the sidebar never spins it by accident.
@@ -88,10 +93,12 @@ export function useServerWheel(
           /* no capture, the drag still works while the pointer stays inside */
         }
         drag.current = { y: event.clientY, offset };
+        moved.current = false;
         setDragging(true);
       },
       onPointerMove: (event: PointerEvent) => {
         if (!drag.current) return;
+        if (Math.abs(event.clientY - drag.current.y) > CLICK_DRAG_THRESHOLD) moved.current = true;
         setOffset(drag.current.offset - (event.clientY - drag.current.y) / DRAG_PX_PER_STEP);
       },
       onPointerUp: (event: PointerEvent) => {

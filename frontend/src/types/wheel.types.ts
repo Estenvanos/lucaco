@@ -19,6 +19,8 @@ export type WheelControls = {
   locked: boolean;
   toggleLock: () => void;
   select: (index: number) => void;
+  /** True if the pointer moved enough since pointerdown to count as a drag, not a click. */
+  wasDrag: () => boolean;
   handlers: {
     onPointerDown: (event: PointerEvent) => void;
     onPointerMove: (event: PointerEvent) => void;
