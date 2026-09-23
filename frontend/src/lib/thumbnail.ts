@@ -3,7 +3,7 @@
  * message (8 KB ciphertext cap), so it is dropped (null) when it does not fit or when the browser
  * cannot decode the video.
  */
-export function videoThumb(url: string, maxSide = 160, maxChars = 4000): Promise<string | null> {
+export function videoThumb(url: string, maxChars = 4000): Promise<string | null> {
   return new Promise((resolve) => {
     const video = document.createElement("video");
     const done = (thumb: string | null) => {
@@ -19,14 +19,18 @@ export function videoThumb(url: string, maxSide = 160, maxChars = 4000): Promise
     video.onloadeddata = () => {
       video.currentTime = Math.min(0.1, video.duration / 2 || 0); // 0 is often a black frame
     };
+    // The cover is shown up to 26rem wide: try a sharper frame first, a smaller one if it does not fit.
     video.onseeked = () => {
-      const scale = Math.min(1, maxSide / Math.max(video.videoWidth, video.videoHeight));
-      const canvas = document.createElement("canvas");
-      canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
-      canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
-      canvas.getContext("2d")?.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const thumb = canvas.toDataURL("image/webp", 0.5); // browsers without webp encode png: too big, dropped
-      done(thumb.length <= maxChars ? thumb : null);
+      for (const [maxSide, quality] of [[320, 0.4], [160, 0.5]]) {
+        const scale = Math.min(1, maxSide / Math.max(video.videoWidth, video.videoHeight));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
+        canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
+        canvas.getContext("2d")?.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const thumb = canvas.toDataURL("image/webp", quality); // browsers without webp encode png: too big, dropped
+        if (thumb.length <= maxChars) return done(thumb);
+      }
+      done(null);
     };
     video.src = url;
   });

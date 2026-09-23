@@ -100,7 +100,7 @@ export function Composer({
             <strong title={attacher.pending.file.name}>{attacher.pending.file.name}</strong>
             <small>{formatBytes(attacher.pending.file.size)}</small>
           </span>
-          <button type="button" className="button-ghost" disabled={attacher.sending} onClick={attacher.clear}>
+          <button type="button" className="button button-ghost" disabled={attacher.sending} onClick={attacher.clear}>
             <X aria-hidden /> Remover
           </button>
           <button type="button" className="button" disabled={attacher.sending} onClick={attacher.send}>

@@ -1,4 +1,4 @@
-import { File as FileIcon, Play } from "lucide-react";
+import { Download, File as FileIcon, Play } from "lucide-react";
 import { useState } from "react";
 import { formatBytes } from "../../lib/utils";
 import { saveAttachment, useAttachment, useImageUrls } from "../../services/messages/messages.media";
@@ -6,8 +6,8 @@ import type { AttachmentMessageProps } from "../../types/ui.types";
 
 /**
  * An image shows its small preview, loaded lazily when scrolled near; a click opens the full one.
- * A video or document is a card: nothing (up to 100 MB) is downloaded until the user asks, by
- * playing the video or saving the document.
+ * A video is a player with its first frame as cover; a document is a card. Nothing (up to 100 MB)
+ * is downloaded until the user asks, by playing the video or saving the file.
  */
 export function AttachmentMessage({ attachment }: AttachmentMessageProps) {
   const [playing, setPlaying] = useState(false);
@@ -34,30 +34,8 @@ export function AttachmentMessage({ attachment }: AttachmentMessageProps) {
     );
   }
 
-  if (attachment.kind === "video" && playing && media.data) {
-    return <video className="chat-attachment-video" controls autoPlay preload="metadata" poster={attachment.thumb} src={media.data} />;
-  }
-
   const error = media.error?.message ?? saveError;
   const busy = saving || (playing && media.isPending);
-
-  // A video with its first frame: click the picture to load and play it.
-  if (attachment.kind === "video" && attachment.thumb) {
-    return (
-      <button
-        type="button"
-        className="chat-video-poster"
-        disabled={busy}
-        title={`Reproduzir ${attachment.name}`}
-        onClick={() => setPlaying(true)}
-      >
-        <img src={attachment.thumb} alt={attachment.name} />
-        <span className="chat-video-play">{error ?? (busy ? "Carregando..." : <Play aria-hidden />)}</span>
-        <small>{formatBytes(attachment.size)}</small>
-      </button>
-    );
-  }
-
   const save = () => {
     setSaving(true);
     setSaveError(null);
@@ -65,6 +43,34 @@ export function AttachmentMessage({ attachment }: AttachmentMessageProps) {
       .catch((err: unknown) => setSaveError(err instanceof Error ? err.message : "Não foi possível baixar"))
       .finally(() => setSaving(false));
   };
+
+  if (attachment.kind === "video") {
+    return (
+      <div className="chat-video">
+        {playing && media.data ? (
+          <video controls autoPlay preload="metadata" poster={attachment.thumb} src={media.data} />
+        ) : (
+          <button
+            type="button"
+            className="chat-video-poster"
+            disabled={busy}
+            title={`Reproduzir ${attachment.name}`}
+            onClick={() => setPlaying(true)}
+          >
+            {attachment.thumb ? <img src={attachment.thumb} alt={attachment.name} /> : null}
+            <span className="chat-video-bar">
+              <Play aria-hidden />
+              <small>{error ?? (busy ? "Carregando..." : formatBytes(attachment.size))}</small>
+            </span>
+          </button>
+        )}
+        <button type="button" className="chat-video-download" disabled={saving} title={`Baixar ${attachment.name}`} onClick={save}>
+          <Download aria-hidden />
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="chat-file">
       <FileIcon aria-hidden />
@@ -72,14 +78,9 @@ export function AttachmentMessage({ attachment }: AttachmentMessageProps) {
         <strong title={attachment.name}>{attachment.name}</strong>
         <small>{error ?? formatBytes(attachment.size)}</small>
       </span>
-      <button
-        type="button"
-        className="button-ghost"
-        disabled={busy}
-        onClick={attachment.kind === "video" ? () => setPlaying(true) : save}
-      >
-        {attachment.kind === "video" ? <Play aria-hidden /> : null}
-        {busy ? "Carregando..." : attachment.kind === "video" ? "Reproduzir" : "Baixar"}
+      <button type="button" className="button button-ghost" disabled={busy} onClick={save}>
+        <Download aria-hidden />
+        {busy ? "Carregando..." : "Baixar"}
       </button>
     </div>
   );
