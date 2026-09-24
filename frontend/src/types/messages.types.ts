@@ -11,8 +11,17 @@ export type StoredMessage = {
   iv: string;
   /** Channel key epoch it was encrypted with; null for DMs. */
   keyEpoch: number | null;
+  /** The message this one replies to (same conversation), or null. */
+  answerFor: string | null;
+  reactions: Reaction[];
   createdAt: string;
 };
+
+/** One person's emoji on a message. In the clear, unlike the message itself. */
+export type Reaction = { emoji: string; userId: string };
+
+/** `message:reacted`: a message's reactions after someone toggled one. */
+export type ReactedEvent = { id: string; channelId: string; reactions: Reaction[] };
 
 export type MessageContentType = "text" | "audio" | AttachmentKind;
 
@@ -61,6 +70,8 @@ export type ChatMessage = {
   text: string | null;
   audio: AudioRef | null;
   attachment: AttachmentRef | null;
+  answerFor: string | null;
+  reactions: Reaction[];
   createdAt: string;
 };
 

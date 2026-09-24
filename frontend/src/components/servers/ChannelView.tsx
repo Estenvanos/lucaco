@@ -41,6 +41,9 @@ export function ChannelView({ channel, onClose }: ChannelViewProps) {
           myName={chat.myName}
           canDelete={chat.canDelete}
           onDelete={chat.onDelete}
+          meId={chat.meId}
+          onReply={chat.onReply}
+          onReact={chat.onReact}
         />
       )}
       <Composer {...chat.composer} />

@@ -8,6 +8,10 @@ export const LIMITS = {
   email: { max: 255 },
   serverName: { min: 2, max: 100 },
   serverDescription: { max: 300 },
+  /** Short label next to the server name; the API stores it uppercase. */
+  serverTag: { pattern: /^[A-Za-z0-9]{2,4}$/, max: 4 },
+  rule: { max: 300 },
+  rulesMax: 20,
   channelName: { max: 100 },
   channelTopic: { max: 1024 },
   /** People allowed in a voice call at once. */

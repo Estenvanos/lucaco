@@ -4,6 +4,8 @@ import { AudioSection } from "../../components/settings/AudioSection";
 import { NotificationsSection } from "../../components/settings/NotificationsSection";
 import { ProfileSection } from "../../components/settings/ProfileSection";
 import { SettingsNav } from "../../components/settings/SettingsNav";
+import { ROUTES } from "../../constants/routes";
+import { SETTINGS_SECTIONS } from "../../constants/settings";
 import { useSettingsSection } from "../../hooks/useSettingsSection";
 
 const SECTIONS = {
@@ -19,7 +21,7 @@ export function SettingsPage() {
 
   return (
     <div className="discover">
-      <SettingsNav active={section} />
+      <SettingsNav label="Configurações" sections={SETTINGS_SECTIONS} active={section} hrefFor={ROUTES.settings} />
       <section className="settings-panel">{SECTIONS[section]}</section>
     </div>
   );

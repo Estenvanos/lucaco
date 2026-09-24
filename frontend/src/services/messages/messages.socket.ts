@@ -3,8 +3,8 @@ import { useSyncExternalStore } from "react";
 import { SOCKET_EVENTS } from "../../constants/socket-events";
 import { queryClient } from "../../lib/query-client";
 import { holdSocket, socket } from "../../lib/socket";
-import type { ChatPage, StoredMessage } from "../../types/messages.types";
-import { addToCache, addToChat, markRead, removeFromCache } from "./messages.api";
+import type { ChatPage, ReactedEvent, StoredMessage } from "../../types/messages.types";
+import { addToCache, addToChat, markRead, removeFromCache, setReactions } from "./messages.api";
 import { keyForEpoch } from "./messages.channel-e2e";
 import { chatKey, decryptMessage } from "./messages.e2e";
 import { messagesKeys } from "./messages.keys";
@@ -55,17 +55,24 @@ function chatSubscription(me: string, peerId: string) {
     if (data?.pages[0]?.channelId === channelId) removeFromCache(messagesKeys.chat(peerId), id);
   };
 
+  const onReacted = ({ id, channelId, reactions }: ReactedEvent) => {
+    const data = queryClient.getQueryData<InfiniteData<ChatPage>>(messagesKeys.chat(peerId));
+    if (data?.pages[0]?.channelId === channelId) setReactions(messagesKeys.chat(peerId), id, reactions);
+  };
+
   subscribe = (notify: () => void) => {
     listeners.add(notify);
     socket.on(SOCKET_EVENTS.messageTyping, onTyping);
     socket.on(SOCKET_EVENTS.messageNew, onMessage);
     socket.on(SOCKET_EVENTS.messageDeleted, onDeleted);
+    socket.on(SOCKET_EVENTS.messageReacted, onReacted);
     const release = holdSocket();
     return () => {
       listeners.delete(notify);
       socket.off(SOCKET_EVENTS.messageTyping, onTyping);
       socket.off(SOCKET_EVENTS.messageNew, onMessage);
       socket.off(SOCKET_EVENTS.messageDeleted, onDeleted);
+      socket.off(SOCKET_EVENTS.messageReacted, onReacted);
       release();
     };
   };
@@ -104,13 +111,19 @@ function channelSubscription(me: string, channelId: string) {
     if (from === channelId) removeFromCache(messagesKeys.channel(channelId), id);
   };
 
+  const onReacted = ({ id, channelId: from, reactions }: ReactedEvent) => {
+    if (from === channelId) setReactions(messagesKeys.channel(channelId), id, reactions);
+  };
+
   subscribe = () => {
     socket.on(SOCKET_EVENTS.messageNew, onMessage);
     socket.on(SOCKET_EVENTS.messageDeleted, onDeleted);
+    socket.on(SOCKET_EVENTS.messageReacted, onReacted);
     const release = holdSocket();
     return () => {
       socket.off(SOCKET_EVENTS.messageNew, onMessage);
       socket.off(SOCKET_EVENTS.messageDeleted, onDeleted);
+      socket.off(SOCKET_EVENTS.messageReacted, onReacted);
       release();
     };
   };

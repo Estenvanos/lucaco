@@ -1,6 +1,12 @@
 import type { z } from "zod";
 import type { SERVER_CATEGORIES } from "../constants/server-categories";
-import type { channelFormSchema, createServerSchema, joinServerSchema } from "../schemas/servers.schema";
+import type {
+  channelFormSchema,
+  createServerSchema,
+  joinServerSchema,
+  serverProfileSchema,
+} from "../schemas/servers.schema";
+import type { UserProfile } from "./users.types";
 import type { UserStatus } from "./users.types";
 
 export type ServerCategory = (typeof SERVER_CATEGORIES)[number]["value"];
@@ -13,6 +19,7 @@ export type PublicServer = {
   category: ServerCategory;
   iconUrl: string | null;
   bannerUrl: string | null;
+  tag: string | null;
   visibility: "public" | "private";
   createdAt: string;
 };
@@ -60,7 +67,8 @@ export type PermissionName =
   | "MANAGE_CHANNELS"
   | "SEND_VOICE_MESSAGES"
   | "ATTACH_FILES"
-  | "BAN_MEMBERS";
+  | "BAN_MEMBERS"
+  | "VIEW_AUDIT_LOG";
 
 /** The ones a channel overwrite may touch (backend CHANNEL_PERMISSIONS). */
 export type ChannelPermission = Extract<
@@ -113,4 +121,15 @@ export type ServerMember = {
   /** Owner or holder of an ADMINISTRATOR role. */
   isAdmin: boolean;
   joinedAt: string;
+};
+
+export type ServerProfileValues = z.infer<typeof serverProfileSchema>;
+
+export type ServerSettingsSection = "perfil" | "regras" | "membros" | "auditoria";
+
+/** Someone who cannot join again; profiles are null when the account was deleted. */
+export type ServerBan = {
+  user: Pick<UserProfile, "id" | "username" | "displayName" | "avatarUrl"> | null;
+  bannedBy: Pick<UserProfile, "id" | "username" | "displayName" | "avatarUrl"> | null;
+  createdAt: string;
 };

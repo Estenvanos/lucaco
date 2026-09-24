@@ -63,6 +63,12 @@ export const ENDPOINTS = {
     permissions: (serverId: string) => `/servers/${serverId}/permissions`,
     member: (serverId: string, userId: string) => `/servers/${serverId}/members/${userId}`,
     ban: (serverId: string, userId: string) => `/servers/${serverId}/bans/${userId}`,
+    bans: (serverId: string) => `/servers/${serverId}/bans`,
+    roleMember: (serverId: string, roleId: string, memberId: string) =>
+      `/servers/${serverId}/roles/${roleId}/members/${memberId}`,
+    rules: (serverId: string) => `/servers/${serverId}/rules`,
+    auditLog: (serverId: string, before: string | undefined, action: string | null) =>
+      `/servers/${serverId}/audit-log?${new URLSearchParams({ ...(before && { before }), ...(action && { action }) })}`,
     admin: (serverId: string, memberId: string) => `/servers/${serverId}/roles/admin/members/${memberId}`,
     acceptInvite: (code: string) => `/servers/invites/${code}/accept`,
   },

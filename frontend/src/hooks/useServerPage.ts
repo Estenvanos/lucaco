@@ -7,6 +7,7 @@ import type { UserStatus } from "../types/users.types";
 import type { ChatPerson } from "../types/ui.types";
 import type { PeerInfo, VoiceTile } from "../types/voice.types";
 import { useAuth } from "./useAuth";
+import { SERVER_SETTINGS_SECTIONS } from "../constants/server-settings";
 import {
   DEFAULT_USER_AUDIO,
   joinVoice,
@@ -93,6 +94,7 @@ export function useServerPage(serverId: string, channelId: string | undefined) {
     channelsLoading,
     members: [...members].sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status]),
     canManage: myPermissions.includes("MANAGE_CHANNELS"),
+    canConfigure: SERVER_SETTINGS_SECTIONS.some((s) => s.permissions.some((p) => myPermissions.includes(p))),
     settings,
     openCreateChannel: () => setSettings({ channel: null, type: "text" }),
     openChannelSettings: (channel: Channel) => setSettings({ channel, type: channel.type }),

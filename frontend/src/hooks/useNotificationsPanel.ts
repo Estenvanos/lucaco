@@ -29,13 +29,17 @@ export function useNotificationsPanel() {
     muted: notificationsMuted,
     busy: dismiss.isPending ? dismiss.variables : null,
     onDismiss: (id: string) => dismiss.mutate(id),
-    // A friend who accepted or wrote: go talk to them.
+    // Something in a channel opens the channel; server activity opens its audit log (a moderator
+    // without VIEW_AUDIT_LOG lands on the first tab they may see); a friend who
+    // accepted, wrote, replied or reacted in a DM opens the chat.
     onOpen: (notification: AppNotification) => {
       setOpen(false);
-      if (notification.tag === NOTIFICATION_TAGS.friendAccepted || notification.tag === NOTIFICATION_TAGS.newMessage) {
-        navigate(ROUTES.conversation(notification.owner.id));
-      } else if (notification.tag === NOTIFICATION_TAGS.mention && notification.serverId && notification.channelId) {
+      if (notification.tag === NOTIFICATION_TAGS.serverActivity && notification.serverId) {
+        navigate(ROUTES.serverSettings(notification.serverId, "auditoria"));
+      } else if (notification.serverId && notification.channelId) {
         navigate(ROUTES.channel(notification.serverId, notification.channelId));
+      } else if (notification.tag !== NOTIFICATION_TAGS.friendRequest) {
+        navigate(ROUTES.conversation(notification.owner.id));
       }
     },
   };

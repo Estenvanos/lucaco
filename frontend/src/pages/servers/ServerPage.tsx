@@ -23,6 +23,7 @@ export function ServerPage() {
         textChannels={page.textChannels}
         activeChannelId={page.activeChannel?.id ?? null}
         canManage={page.canManage}
+        canConfigure={page.canConfigure}
         onCreateChannel={page.openCreateChannel}
         onEditChannel={page.openChannelSettings}
         voice={page.voice}

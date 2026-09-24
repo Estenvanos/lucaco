@@ -10,6 +10,7 @@ import { FriendsPage } from "./pages/friends/FriendsPage";
 import { HomePage } from "./pages/home/HomePage";
 import { NewServerPage } from "./pages/servers/NewServerPage";
 import { ServerPage } from "./pages/servers/ServerPage";
+import { ServerSettingsPage } from "./pages/servers/ServerSettingsPage";
 import { SettingsPage } from "./pages/settings/SettingsPage";
 
 export const router = createBrowserRouter([
@@ -24,6 +25,7 @@ export const router = createBrowserRouter([
       { path: ROUTES.channelPattern, element: <ServerPage /> },
       { path: ROUTES.conversationPattern, element: <ConversationPage /> },
       { path: ROUTES.settingsPattern, element: <SettingsPage /> },
+      { path: ROUTES.serverSettingsPattern, element: <ServerSettingsPage /> },
     ],
   },
   {

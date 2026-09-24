@@ -35,4 +35,7 @@ export const NOTIFICATION_TAG_LABEL: Record<NotificationTag, string> = {
   [NOTIFICATION_TAGS.friendAccepted]: "Pedidos aceitos",
   [NOTIFICATION_TAGS.newMessage]: "Novas mensagens",
   [NOTIFICATION_TAGS.mention]: "Menções",
+  [NOTIFICATION_TAGS.reply]: "Respostas às suas mensagens",
+  [NOTIFICATION_TAGS.reaction]: "Reações às suas mensagens",
+  [NOTIFICATION_TAGS.serverActivity]: "Atividade nos servers que você modera",
 };

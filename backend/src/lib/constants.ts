@@ -25,6 +25,9 @@ export const SOCKET_EVENTS = {
   /** To everyone who can read the conversation: { id, channelId } left it. */
   messageDeleted: "message:deleted",
   messageTyping: "message:typing",
+  messageReact: "message:react",
+  /** To everyone who can read the conversation: { id, channelId, reactions } after a toggle. */
+  messageReacted: "message:reacted",
   notificationNew: "notification:new",
   notificationRemoved: "notification:removed",
   /** To a kicked or banned user: the server left their list. */
@@ -42,6 +45,11 @@ export const NOTIFICATION_TAGS = {
   newMessage: "new_message",
   /** @name / @todos in a server channel. */
   mention: "mention",
+  /** Someone replied to / reacted on the receiver's message (DM or channel). */
+  reply: "reply",
+  reaction: "reaction",
+  /** To administrators: someone joined, left, was kicked or banned. */
+  serverActivity: "server_activity",
 } as const satisfies Record<string, NotificationTag>;
 
 /** Refresh cookie: scoped to /auth so it is never sent to the rest of the API. */
@@ -69,6 +77,7 @@ export const PERMISSIONS = {
   SEND_VOICE_MESSAGES: 1n << 11n, // recorded audio in a text channel
   BAN_MEMBERS: 1n << 12n, // remove a member for good
   ATTACH_FILES: 1n << 13n, // images, documents and videos in a text channel
+  VIEW_AUDIT_LOG: 1n << 14n, // read the server's audit log
 } as const;
 
 export type PermissionName = keyof typeof PERMISSIONS;

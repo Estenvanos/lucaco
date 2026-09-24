@@ -11,6 +11,7 @@ import {
   epochParamsSchema,
   historySchema,
   peerSchema,
+  reactMessageSchema,
   sendChannelMessageSchema,
   sendMessageSchema,
 } from "./messages.schema.js";
@@ -60,6 +61,16 @@ export async function remove(io: Server, socket: Socket, payload: unknown) {
   );
   io.to(recipients.map(userRoom)).emit(SOCKET_EVENTS.messageDeleted, { id, channelId });
   return { id };
+}
+
+/** Socket handler: toggles one of the caller's reactions and tells everyone who can read it. */
+export async function react(io: Server, socket: Socket, payload: unknown) {
+  const { id, channelId, reactions, recipients } = await messagesService.react(
+    socket.data.userId,
+    reactMessageSchema.parse(payload),
+  );
+  io.to(recipients.map(userRoom)).emit(SOCKET_EVENTS.messageReacted, { id, channelId, reactions });
+  return { id, reactions };
 }
 
 /** POST /messages/read { peerId } */

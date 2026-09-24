@@ -1,7 +1,7 @@
 import { ApiError } from "../lib/api";
 import { extractMentions } from "../lib/mentions";
-import { chatRows, confirmDelete } from "../lib/utils";
-import { deleteMessage, sendChannelMessage, useChannelChat as useChannelHistory } from "../services/messages/messages.api";
+import { alertError, chatRows, confirmDelete, messagePreview, nameOf } from "../lib/utils";
+import { deleteMessage, reactMessage, sendChannelMessage, useChannelChat as useChannelHistory } from "../services/messages/messages.api";
 import { messagesKeys } from "../services/messages/messages.keys";
 import { uploadAttachment, uploadVoice } from "../services/messages/messages.media";
 import { useChannelLive } from "../services/messages/messages.socket";
@@ -21,16 +21,19 @@ export function useChannelChat(channel: Channel) {
   const chat = useChannelHistory(me.id, channel.id);
   useChannelLive(me.id, channel.id);
   const people = members.map((m) => ({ userId: m.userId, name: m.nickname ?? m.displayName ?? m.username }));
-  const composer = useComposer((out) =>
-    sendChannelMessage(me.id, channel.id, out, extractMentions(out.text, people)),
+  const composer = useComposer((out, answerFor) =>
+    sendChannelMessage(me.id, channel.id, out, extractMentions(out.text, people), answerFor),
   );
+  // Voice and files answer the same message the text box would, then clear it.
   const voice = useVoiceRecorder(me.settings, async (recording, durationMs) => {
     const audio = await uploadVoice({ channelId: channel.id }, recording, durationMs);
-    await sendChannelMessage(me.id, channel.id, { text: "", audio, attachment: null });
+    await sendChannelMessage(me.id, channel.id, { text: "", audio, attachment: null }, undefined, composer.replyTo?.id);
+    composer.cancelReply();
   });
   const attacher = useAttacher(async (file, thumb) => {
     const attachment = await uploadAttachment({ channelId: channel.id }, file, thumb);
-    await sendChannelMessage(me.id, channel.id, { text: "", audio: null, attachment });
+    await sendChannelMessage(me.id, channel.id, { text: "", audio: null, attachment }, undefined, composer.replyTo?.id);
+    composer.cancelReply();
   });
 
   const messages = chat.data?.pages.flatMap((page) => page.messages) ?? [];
@@ -46,6 +49,8 @@ export function useChannelChat(channel: Channel) {
       ? { id: member.userId, username: member.username, displayName: member.nickname ?? member.displayName, avatarUrl: member.avatarUrl }
       : { id: senderId, username: "ex-membro", displayName: null, avatarUrl: null };
   };
+
+  const { replyTo } = composer;
 
   return {
     rows: chatRows(messages),
@@ -64,8 +69,12 @@ export function useChannelChat(channel: Channel) {
     /** The author, or a member with MANAGE_MESSAGES. */
     canDelete: (row: ChatRow) => row.senderId === me.id || canModerate,
     onDelete: (row: ChatRow) => confirmDelete(() => deleteMessage(messagesKeys.channel(channel.id), row.id)),
+    meId: me.id,
+    onReply: composer.reply,
+    onReact: (row: ChatRow, emoji: string) => reactMessage(messagesKeys.channel(channel.id), row.id, emoji).catch(alertError),
     composer: {
       ...composer,
+      replying: replyTo && { id: replyTo.id, name: nameOf(authorOf(replyTo.senderId)), preview: messagePreview(replyTo) },
       placeholder: `Conversar em #${channel.name}`,
       label: `Mensagem em #${channel.name}`,
       blocked: canSend ? null : "Você não tem permissão para enviar mensagens neste canal.",

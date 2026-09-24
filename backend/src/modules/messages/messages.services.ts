@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { MongoServerError, ObjectId } from "mongodb";
 import { HttpError } from "../../lib/http-error.js";
+import type { NotificationTag } from "../../generated/prisma/client.js";
 import { messages, type MessageDoc } from "../../lib/mongo.js";
 import { NOTIFICATION_TAGS } from "../../lib/constants.js";
 import { prisma } from "../../lib/prisma.js";
@@ -15,6 +16,7 @@ import type {
   CreateEpochInput,
   DeleteMessageInput,
   HistoryInput,
+  ReactMessageInput,
   SendChannelMessageInput,
   SendMessageInput,
 } from "./messages.schema.js";
@@ -56,6 +58,8 @@ export function toPublicMessage(doc: MessageDoc) {
     iv: doc.iv,
     keyEpoch: doc.keyEpoch,
     mentions: doc.mentions ?? { everyone: false, userIds: [] },
+    answerFor: doc.answerFor ?? null,
+    reactions: doc.reactions ?? [],
     createdAt: doc.createdAt,
   };
 }
@@ -103,6 +107,7 @@ const newDoc = (
   keyEpoch,
   ...("mentions" in input && { mentions: input.mentions }),
   ...(input.mediaId && { mediaId: input.mediaId }),
+  ...(input.answerFor && { answerFor: input.answerFor }),
   createdAt: new Date(),
   expiresAt: null,
 });
@@ -110,6 +115,7 @@ const newDoc = (
 export async function send(userId: string, input: SendMessageInput) {
   const channelId = await requireFriendship(userId, input.peerId);
   await requireMedia(userId, channelId, input);
+  const answered = await requireAnswer(channelId, input.answerFor);
   const { message, created } = await insertOnce(newDoc(userId, channelId, "dm", input, null));
   // Only a new message notifies: an idempotent retry must not ping twice.
   if (created) {
@@ -120,6 +126,7 @@ export async function send(userId: string, input: SendMessageInput) {
       ownerId: userId,
       receiverId: input.peerId,
     });
+    if (answered) await notifyAuthor(NOTIFICATION_TAGS.reply, userId, answered, "respondeu sua mensagem");
   }
   return message;
 }
@@ -145,6 +152,34 @@ async function requireMedia(
   }
 }
 
+/** A reply must point at a message of the same conversation. Returns that message. */
+async function requireAnswer(conversationId: string, answerFor: string | undefined) {
+  if (!answerFor) return null;
+  const original = await messages.findOne({ _id: new ObjectId(answerFor), channelId: conversationId });
+  if (!original) throw new HttpError(400, "Invalid reply");
+  return original;
+}
+
+/**
+ * Tells the author of `doc` that `userId` replied to or reacted on it. Never oneself. A channel
+ * notice carries where it happened, so the bell can open the channel; a DM one opens the chat.
+ */
+async function notifyAuthor(tag: NotificationTag, userId: string, doc: MessageDoc, action: string) {
+  if (doc.senderId === userId) return;
+  const [sender, channel] = await Promise.all([
+    usersService.getById(userId),
+    doc.scope === "channel" ? channelsService.getById(doc.channelId) : null,
+  ]);
+  await notificationsService.notify({
+    tag,
+    title: sender.displayName ?? sender.username,
+    subtitle: (channel ? `${action} em #${channel.name}` : action).slice(0, 120),
+    ownerId: userId,
+    receiverId: doc.senderId,
+    ...(channel && { serverId: channel.serverId, channelId: channel.id }),
+  });
+}
+
 /** The channel's newest key epoch, or null before anyone opened the chat. */
 const latestEpoch = (channelId: string) =>
   prisma.channelKeyEpoch.findFirst({ where: { channelId }, orderBy: { epoch: "desc" } });
@@ -160,9 +195,13 @@ export async function sendToChannel(userId: string, input: SendChannelMessageInp
   const latest = await latestEpoch(input.channelId);
   if (latest?.epoch !== input.keyEpoch) throw new HttpError(409, "Stale key epoch");
   await requireMedia(userId, input.channelId, input);
+  const answered = await requireAnswer(input.channelId, input.answerFor);
   const { message, created } = await insertOnce(newDoc(userId, input.channelId, "channel", input, input.keyEpoch));
   const recipients = await channelsService.viewerIds(input.channelId);
-  if (created) await notifyMentions(userId, input, recipients);
+  if (created) {
+    await notifyMentions(userId, input, recipients);
+    if (answered) await notifyAuthor(NOTIFICATION_TAGS.reply, userId, answered, "respondeu sua mensagem");
+  }
   return { message, recipients };
 }
 
@@ -240,6 +279,60 @@ export async function conversations(userId: string) {
 }
 
 /**
+ * Who hears about a change to `doc`: both sides of a DM (the caller must be one of them, proven
+ * by `peerId`), or everyone who can read the channel plus the caller.
+ */
+async function recipientsOf(userId: string, doc: MessageDoc, peerId: string | undefined) {
+  if (doc.scope === "dm") {
+    if (!peerId || dmId(userId, peerId) !== doc.channelId) throw new HttpError(400, "Wrong conversation");
+    return [userId, peerId];
+  }
+  return [...new Set([userId, ...(await channelsService.viewerIds(doc.channelId))])];
+}
+
+/** Distinct emojis a message can carry, so reactions cannot grow the document without bound. */
+const MAX_REACTION_EMOJIS = 20;
+
+/**
+ * One reaction per person: the same emoji again removes it, another emoji replaces it. Anyone who
+ * can read the conversation may react; the author hears about a new one. Returns the new list and
+ * who to tell.
+ */
+export async function react(userId: string, { messageId, emoji, peerId }: ReactMessageInput) {
+  const doc = await messages.findOne({ _id: new ObjectId(messageId) });
+  if (!doc) throw new HttpError(404, "Message not found");
+  if (doc.scope === "channel") await channelsService.canView(doc.channelId, userId);
+  const recipients = await recipientsOf(userId, doc, peerId);
+  const reactions = doc.reactions ?? [];
+  const mine = reactions.some((r) => r.emoji === emoji && r.userId === userId);
+  const emojis = new Set(reactions.map((r) => r.emoji));
+  if (!mine && !emojis.has(emoji) && emojis.size >= MAX_REACTION_EMOJIS) {
+    throw new HttpError(409, "Too many reactions on this message");
+  }
+  // One pipeline update: drop whatever the caller had, then add the new one. Atomic, so two
+  // people reacting at once cannot overwrite each other.
+  const updated = await messages.findOneAndUpdate(
+    { _id: doc._id },
+    [
+      {
+        $set: {
+          reactions: {
+            $concatArrays: [
+              { $filter: { input: { $ifNull: ["$reactions", []] }, cond: { $ne: ["$$this.userId", userId] } } },
+              mine ? [] : [{ emoji, userId }],
+            ],
+          },
+        },
+      },
+    ],
+    { returnDocument: "after" },
+  );
+  if (!updated) throw new HttpError(404, "Message not found"); // deleted in between
+  if (!mine) await notifyAuthor(NOTIFICATION_TAGS.reaction, userId, doc, `reagiu com ${emoji} à sua mensagem`);
+  return { id: messageId, channelId: doc.channelId, reactions: updated.reactions ?? [], recipients };
+}
+
+/**
  * Really deletes the message: the Mongo document, and its file (storage first, so a failure
  * leaves the message in place and a retry finishes the job). The author may always delete their
  * own message; in a channel, MANAGE_MESSAGES may delete anyone's. Returns who to tell: everyone
@@ -252,13 +345,7 @@ export async function remove(userId: string, { messageId, peerId }: DeleteMessag
     if (doc.scope === "dm") throw new HttpError(403, "Only the author can delete a direct message");
     await channelsService.canManageMessages(doc.channelId, userId);
   }
-  let recipients: string[];
-  if (doc.scope === "dm") {
-    if (!peerId || dmId(userId, peerId) !== doc.channelId) throw new HttpError(400, "Wrong conversation");
-    recipients = [userId, peerId];
-  } else {
-    recipients = [...new Set([userId, ...(await channelsService.viewerIds(doc.channelId))])];
-  }
+  const recipients = await recipientsOf(userId, doc, peerId);
   if (doc.mediaId) {
     const media = await prisma.mediaFile.findUnique({ where: { id: doc.mediaId } });
     if (media) await Promise.all([media.storageKey, media.previewKey].filter((key): key is string => !!key).map((key) => deleteObject(key)));
@@ -268,9 +355,10 @@ export async function remove(userId: string, { messageId, peerId }: DeleteMessag
   return { id: messageId, channelId: doc.channelId, recipients };
 }
 
-/** Opening the chat reads it: the peer's unread-message notice goes away. */
-export function markRead(userId: string, peerId: string) {
-  return notificationsService.dismissFrom(userId, peerId, NOTIFICATION_TAGS.newMessage);
+/** Opening the chat reads it: the peer's unread-message, reply and reaction notices go away. */
+export async function markRead(userId: string, peerId: string) {
+  const tags = [NOTIFICATION_TAGS.newMessage, NOTIFICATION_TAGS.reply, NOTIFICATION_TAGS.reaction];
+  await Promise.all(tags.map((tag) => notificationsService.dismissFrom(userId, peerId, tag)));
 }
 
 /** Typing is relayed only between friends, same rule as the messages themselves. */

@@ -47,6 +47,8 @@ model User {
   channelKeyShares  ChannelKeyShare[]
   mediaFiles        MediaFile[]
   serverBans        ServerBan[]
+  auditActions      AuditLog[]     @relation("auditActor")
+  auditTargets      AuditLog[]     @relation("auditTarget")
 
   @@map("users")
 }
@@ -121,6 +123,7 @@ model Server {
   category    String           @default("other") @db.VarChar(32) // one of SERVER_CATEGORIES (lib/constants.ts)
   iconUrl     String?          @map("icon_url") // object storage key
   bannerUrl   String?          @map("banner_url") // object storage key, card background on /descobrir
+  tag         String?          @db.VarChar(4) // 2-4 uppercase letters/digits shown next to the name
   visibility  ServerVisibility @default(public)
   createdAt   DateTime         @default(now()) @map("created_at") @db.Timestamptz
   owner       User             @relation(fields: [ownerId], references: [id])
@@ -129,6 +132,8 @@ model Server {
   invites     Invite[]
   channels    Channel[]
   bans        ServerBan[]
+  rules       ServerRule[]
+  auditLogs   AuditLog[]
 
   @@index([ownerId])
   @@map("servers")
@@ -375,6 +380,9 @@ enum NotificationTag {
   friend_accepted
   new_message
   mention
+  reply
+  reaction
+  server_activity
 
   @@map("notification_tag")
 }
@@ -399,4 +407,34 @@ model Notification {
 
   @@index([receiverId, createdAt])
   @@map("notifications")
+}
+
+/// Server rules, shown in order. Row Level Security is enforced (see the server_settings migration).
+model ServerRule {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  serverId  String   @map("server_id") @db.Uuid
+  position  Int
+  content   String   @db.VarChar(300)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  server    Server   @relation(fields: [serverId], references: [id], onDelete: Cascade)
+
+  @@index([serverId])
+  @@map("server_rules")
+}
+
+/// Append-only record of moderation and configuration actions. action is one of AUDIT_ACTIONS.
+model AuditLog {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  serverId     String   @map("server_id") @db.Uuid
+  actorId      String?  @map("actor_id") @db.Uuid
+  targetUserId String?  @map("target_user_id") @db.Uuid
+  action       String   @db.VarChar(32)
+  details      Json?
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+  server       Server   @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  actor        User?    @relation("auditActor", fields: [actorId], references: [id], onDelete: SetNull)
+  target       User?    @relation("auditTarget", fields: [targetUserId], references: [id], onDelete: SetNull)
+
+  @@index([serverId, createdAt(sort: Desc)])
+  @@map("audit_logs")
 }

@@ -17,6 +17,9 @@ export type MessageDoc = {
   iv: string; // base64, random per message
   keyEpoch: number | null; // which sender key decrypts it; null for DMs
   mentions?: { everyone: boolean; userIds: string[] }; // channel messages only
+  answerFor?: string; // the replied message's ObjectId hex, same conversation
+  // ponytail: emojis in the clear leak who reacted with what; encrypt them if that matters
+  reactions?: { emoji: string; userId: string }[];
   mediaId?: string; // the attachment (media_files.id); in the clear only so deleting the message can delete the file
   createdAt: Date;
   expiresAt: Date | null;

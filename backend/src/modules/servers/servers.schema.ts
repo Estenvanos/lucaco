@@ -41,6 +41,11 @@ export const updateServerSchema = z
     visibility: serverVisibilitySchema.optional(),
     category: serverCategorySchema.optional(),
     description: descriptionSchema.transform((value) => value || null).nullish(),
+    // Blank clears the tag.
+    tag: z
+      .union([z.literal(""), z.string().trim().regex(/^[A-Za-z0-9]{2,4}$/, "Tag must be 2-4 letters or digits")])
+      .transform((value) => value.toUpperCase() || null)
+      .nullish(),
   })
   .refine((value) => Object.values(value).some((field) => field !== undefined), {
     message: "At least one property is required",

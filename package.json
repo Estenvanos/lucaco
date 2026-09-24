@@ -7,7 +7,8 @@
     "services:down": "docker compose stop postgres minio mongo livekit",
     "dev": "concurrently -n api,web -c blue,magenta \"npm --prefix backend run dev\" \"npm run wait-api && npm --prefix frontend run dev\"",
     "wait-api": "node -e \"const net=require('net');(function t(){net.connect(3333,'localhost').on('connect',()=>process.exit()).on('error',()=>setTimeout(t,300))})()\"",
-    "seed": "node scripts/seed-dev.mjs"
+    "seed": "node scripts/seed-dev.mjs",
+    "e2e:replies": "node --test scripts/e2e-replies-reactions.mjs"
   },
   "devDependencies": {
     "concurrently": "^10.0.5"

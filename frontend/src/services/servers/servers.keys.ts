@@ -9,5 +9,6 @@ export const serversKeys = {
   members: (serverId: string) => [...serversKeys.detail(serverId), "members"] as const,
   roles: (serverId: string) => [...serversKeys.detail(serverId), "roles"] as const,
   permissions: (serverId: string) => [...serversKeys.detail(serverId), "permissions"] as const,
+  bans: (serverId: string) => [...serversKeys.detail(serverId), "bans"] as const,
   channelPermissions: (channelId: string) => [...serversKeys.all, "channel-permissions", channelId] as const,
 };

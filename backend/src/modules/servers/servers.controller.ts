@@ -104,6 +104,17 @@ export async function ban(req: Request, res: Response) {
   res.status(204).end();
 }
 
+export async function listBans(req: Request, res: Response) {
+  const { serverId } = serverIdSchema.parse(req.params);
+  res.json(await serversService.listBans(serverId, req.auth!.sub));
+}
+
+export async function unban(req: Request, res: Response) {
+  const { serverId, userId } = memberParamsSchema.parse(req.params);
+  await serversService.unban(serverId, userId, req.auth!.sub);
+  res.status(204).end();
+}
+
 export async function updateBanner(req: Request, res: Response) {
   const { serverId } = serverIdSchema.parse(req.params);
   const server = await serversService.updateBanner(serverId, req.auth!.sub, imageFileSchema.parse(req.file));

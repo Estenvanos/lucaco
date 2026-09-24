@@ -3650,7 +3650,7 @@ form {
 }
 
 /* Hover (or keyboard focus) reveals the trash can, top right of the message. */
-.chat-message-delete {
+.chat-message-more {
   position: absolute;
   top: 0;
   right: 0;
@@ -3663,19 +3663,210 @@ form {
   cursor: pointer;
 }
 
-.chat-message-delete svg {
+.chat-message-more svg {
   display: block;
   width: 1rem;
   height: 1rem;
 }
 
-.chat-message-delete:hover {
+.chat-message-more:hover {
+  color: var(--text);
+}
+
+.chat-message:hover .chat-message-more,
+.chat-message:focus-within .chat-message-more {
+  display: block;
+}
+
+/* Touch screens have no hover: keep the menu reachable. */
+@media (hover: none) {
+  .chat-message-more {
+    display: block;
+    opacity: 0.6;
+  }
+}
+
+/* The "..." menu: a popover in the top layer, placed by MessageMenu when it opens. */
+.chat-message-menu {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  padding: 0.3rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--popover);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  color: var(--text);
+}
+
+.chat-message-menu:popover-open {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.chat-message-menu button {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.6rem;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 0.85rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.chat-message-menu button:hover,
+.chat-message-menu button:focus-visible {
+  background: var(--ink-2);
+}
+
+.chat-message-menu button[data-danger] {
   color: var(--danger);
 }
 
-.chat-message:hover .chat-message-delete,
-.chat-message:focus-within .chat-message-delete {
-  display: block;
+.chat-message-menu svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.chat-message-menu-emojis {
+  display: flex;
+  padding-bottom: 0.2rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.chat-message-menu .chat-message-menu-emojis button {
+  padding: 0.3rem;
+  font-size: 1.1rem;
+}
+
+/* Drag to the right to reply; vertical movement stays a scroll. */
+.chat-swipe {
+  touch-action: pan-y;
+  transition: transform 150ms ease;
+}
+
+.chat-swipe[data-swiping] {
+  user-select: none;
+}
+
+.chat-reply-quote {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  max-width: 100%;
+  margin: 0 0 0.2rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 0.8rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.chat-reply-quote[data-missing] {
+  font-style: italic;
+  cursor: default;
+}
+
+.chat-reply-quote svg {
+  flex: none;
+  width: 0.9rem;
+  height: 0.9rem;
+}
+
+.chat-reply-quote span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.chat-reply-quote:hover:not([data-missing]) {
+  color: var(--text);
+}
+
+.chat-reactions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-top: 0.25rem;
+}
+
+.chat-reaction {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.1rem 0.45rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--ink-2);
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.chat-reaction[aria-pressed="true"] {
+  border-color: var(--lime);
+  color: var(--text);
+}
+
+.chat-composer-reply {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+  padding: 0.4rem 0.5rem 0.4rem 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--popover);
+  backdrop-filter: blur(10px);
+  color: var(--text-dim);
+  font-size: 0.8rem;
+}
+
+.chat-composer-reply > svg {
+  flex: none;
+  width: 0.9rem;
+  height: 0.9rem;
+}
+
+.chat-composer-reply span {
+  flex: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.chat-composer-reply strong {
+  color: var(--text);
+}
+
+.chat-composer-reply button {
+  display: flex;
+  padding: 0.2rem;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.chat-composer-reply button:hover {
+  color: var(--text);
+}
+
+.chat-composer-reply button svg {
+  width: 0.9rem;
+  height: 0.9rem;
 }
 
 /* File waiting in the composer: preview, then send or remove. */
@@ -3915,4 +4106,216 @@ form {
   stroke-width: 1.6;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+/* ---------- server settings ---------- */
+.server-info-gear {
+  width: 2rem;
+  height: 2rem;
+  margin-left: auto;
+}
+
+.server-tag {
+  margin-left: 0.4rem;
+  padding: 0.05rem 0.35rem;
+  border: 1px solid var(--lime);
+  border-radius: 4px;
+  color: var(--lime);
+  font-size: 0.65rem;
+  letter-spacing: 0.06em;
+  vertical-align: middle;
+}
+
+.server-settings-images {
+  display: flex;
+  align-items: end;
+  gap: 1rem;
+}
+
+.settings-form .server-settings-images .image-picker:first-child {
+  width: 16rem;
+}
+
+.button-danger {
+  border-color: var(--danger);
+  background: none;
+  color: var(--danger);
+}
+
+.server-rules {
+  display: grid;
+  gap: 0.6rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.server-rules li {
+  display: grid;
+  grid-template-columns: 1.75rem 1fr auto;
+  align-items: start;
+  gap: 0.6rem;
+}
+
+.server-rule-number {
+  display: grid;
+  place-items: center;
+  height: 1.75rem;
+  border-radius: 50%;
+  background: var(--ink-2);
+  color: var(--lime);
+  font-weight: 700;
+  font-size: 0.8rem;
+}
+
+.server-rules textarea,
+.server-members-search {
+  width: 100%;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--ink-1);
+  color: var(--text);
+  font: inherit;
+  resize: vertical;
+}
+
+.server-rule-actions {
+  display: flex;
+  gap: 0.15rem;
+}
+
+.server-rule-actions button {
+  display: grid;
+  place-items: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.server-rule-actions button:hover:not(:disabled) {
+  background: var(--ink-2);
+  color: var(--text);
+}
+
+.server-rule-actions button:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.server-rule-actions svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.server-member-rows,
+.audit-list {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.server-member-row {
+  display: grid;
+  gap: 0.6rem;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--ink-1);
+}
+
+.server-member-row-head {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.server-member-row-name {
+  display: grid;
+  min-width: 0;
+}
+
+.server-member-row-name small {
+  color: var(--text-dim);
+  font-size: 0.75rem;
+}
+
+.server-member-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-left: auto;
+}
+
+.server-member-row-actions .button {
+  padding: 0.3rem 0.7rem;
+  font-size: 0.8rem;
+}
+
+.server-member-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.tag-chip {
+  padding: 0.15rem 0.55rem;
+  border: 1px solid color-mix(in srgb, var(--chip) 55%, transparent);
+  border-radius: 999px;
+  background: none;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.tag-chip[aria-pressed="true"] {
+  border-color: var(--chip);
+  background: color-mix(in srgb, var(--chip) 22%, transparent);
+  color: var(--text);
+}
+
+.audit-item {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.6rem 0.8rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.audit-item p {
+  margin: 0;
+  font-size: 0.875rem;
+}
+
+.audit-item-extra,
+.audit-item time {
+  color: var(--text-dim);
+  font-size: 0.75rem;
+}
+
+.audit-item[data-action="member_ban"] strong:last-of-type,
+.audit-item[data-action="member_kick"] strong:last-of-type {
+  color: var(--danger);
+}
+
+@media (max-width: 720px) {
+  .server-member-row-head {
+    flex-wrap: wrap;
+  }
+
+  .audit-item {
+    grid-template-columns: auto 1fr;
+  }
+
+  .audit-item time {
+    grid-column: 2;
+  }
 }

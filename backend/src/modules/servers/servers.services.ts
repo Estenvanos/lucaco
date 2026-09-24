@@ -2,17 +2,22 @@ import { randomBytes } from "node:crypto";
 import {
   ALL_PERMISSIONS,
   DEFAULT_PERMISSIONS,
+  NOTIFICATION_TAGS,
   PERMISSIONS,
   SOCKET_EVENTS,
   type PermissionName,
 } from "../../lib/constants.js";
 import { HttpError } from "../../lib/http-error.js";
+import { logger } from "../../lib/logger.js";
 import { toNames } from "../../lib/permissions.js";
-import { prisma } from "../../lib/prisma.js";
+import { prisma, withUser } from "../../lib/prisma.js";
 import { emitToUser } from "../../lib/socket.js";
 import { signedGetUrl } from "../../lib/storage.js";
+import * as auditService from "../audit/audit.services.js";
 import type { ImageFile } from "../images/images.schema.js";
 import * as imagesService from "../images/images.services.js";
+import * as notificationsService from "../notifications/notifications.services.js";
+import * as usersService from "../users/users.services.js";
 import type {
   CreateInviteInput,
   CreateServerInput,
@@ -28,6 +33,7 @@ export async function toPublicServer(server: {
   category: string;
   iconUrl: string | null;
   bannerUrl: string | null;
+  tag: string | null;
   visibility: "public" | "private";
   createdAt: Date;
 }) {
@@ -39,6 +45,7 @@ export async function toPublicServer(server: {
     category: server.category,
     iconUrl: server.iconUrl ? await signedGetUrl(server.iconUrl) : null,
     bannerUrl: server.bannerUrl ? await signedGetUrl(server.bannerUrl) : null,
+    tag: server.tag,
     visibility: server.visibility,
     createdAt: server.createdAt,
   };
@@ -163,6 +170,15 @@ export async function getMember(serverId: string, userId: string) {
   return member;
 }
 
+/** 404 unless memberId is a membership of this server. */
+export async function getMemberById(serverId: string, memberId: string) {
+  const member = await prisma.serverMember.findUnique({ where: { id: memberId } });
+  if (!member || member.serverId !== serverId) throw new HttpError(404, "Member not found");
+  return member;
+}
+
+// ponytail: the whole member list in one response, searched on the client — page it and search
+// server-side when servers reach a few thousand members.
 export async function listMembers(serverId: string) {
   const server = await getById(serverId);
   const members = await prisma.serverMember.findMany({
@@ -188,6 +204,58 @@ export async function listMembers(serverId: string) {
   );
 }
 
+const ACTIVITY_TEXT = {
+  join: (actor: string) => `${actor} entrou no server`,
+  leave: (actor: string) => `${actor} saiu do server`,
+  kick: (actor: string, target: string) => `${actor} expulsou ${target}`,
+  ban: (actor: string, target: string) => `${actor} baniu ${target}`,
+};
+
+/**
+ * Tells every moderator (KICK_MEMBERS or BAN_MEMBERS; administrators and the owner hold both)
+ * what happened, except whoever took part.
+ * Best effort: a failed notice is logged and never undoes the action.
+ */
+async function notifyAdmins(
+  serverId: string,
+  event: keyof typeof ACTIVITY_TEXT,
+  actorId: string,
+  targetId?: string,
+) {
+  try {
+    const [server, members, profiles] = await Promise.all([
+      getById(serverId),
+      allMemberPermissions(serverId),
+      usersService.getProfiles(targetId ? [actorId, targetId] : [actorId]),
+    ]);
+    const name = (id: string) => {
+      const profile = profiles.get(id);
+      return profile ? (profile.displayName ?? profile.username) : "Alguém";
+    };
+    const title = ACTIVITY_TEXT[event](name(actorId), targetId ? name(targetId) : "").slice(0, 120);
+    const admins = members.filter(
+      (m) =>
+        (has(m.permissions, "KICK_MEMBERS") || has(m.permissions, "BAN_MEMBERS")) &&
+        m.userId !== actorId &&
+        m.userId !== targetId,
+    );
+    await Promise.all(
+      admins.map((admin) =>
+        notificationsService.notify({
+          tag: NOTIFICATION_TAGS.serverActivity,
+          title,
+          subtitle: server.name.slice(0, 120),
+          ownerId: actorId,
+          receiverId: admin.userId,
+          serverId,
+        }),
+      ),
+    );
+  } catch (err) {
+    logger.error("server activity notice failed", err);
+  }
+}
+
 export async function join(serverId: string, userId: string) {
   const server = await getById(serverId);
   const existing = await prisma.serverMember.findUnique({
@@ -196,7 +264,9 @@ export async function join(serverId: string, userId: string) {
   if (existing) return existing;
   await requireNotBanned(serverId, userId);
   if (server.visibility !== "public") throw new HttpError(403, "Invite required for private server");
-  return prisma.serverMember.create({ data: { serverId, userId } });
+  const member = await prisma.serverMember.create({ data: { serverId, userId } });
+  await notifyAdmins(serverId, "join", userId);
+  return member;
 }
 
 export async function createInvite(
@@ -217,7 +287,8 @@ export async function createInvite(
 }
 
 export async function acceptInvite(code: string, userId: string) {
-  return prisma.$transaction(async (tx) => {
+  let joined = false;
+  const member = await prisma.$transaction(async (tx) => {
     const invite = await tx.invite.findUnique({ where: { code } });
     if (!invite) throw new HttpError(404, "Invite not found");
 
@@ -243,8 +314,11 @@ export async function acceptInvite(code: string, userId: string) {
     });
     if (reserved.count === 0) throw new HttpError(410, "Invite has reached its use limit");
 
+    joined = true;
     return tx.serverMember.create({ data: { serverId: invite.serverId, userId } });
   });
+  if (joined) await notifyAdmins(member.serverId, "join", userId);
+  return member;
 }
 
 export async function leave(serverId: string, userId: string) {
@@ -252,6 +326,7 @@ export async function leave(serverId: string, userId: string) {
   if (server.ownerId === userId) throw new HttpError(409, "The owner cannot leave the server");
   await getMember(serverId, userId);
   await prisma.serverMember.delete({ where: { serverId_userId: { serverId, userId } } });
+  await notifyAdmins(serverId, "leave", userId);
 }
 
 async function requireNotBanned(serverId: string, userId: string) {
@@ -290,8 +365,12 @@ async function requireCanRemove(
 /** Removes the member; they can join again. */
 export async function kick(serverId: string, targetId: string, actorId: string) {
   const target = await requireCanRemove(serverId, actorId, targetId, "KICK_MEMBERS");
-  await prisma.serverMember.delete({ where: { id: target.id } });
+  await prisma.$transaction(async (tx) => {
+    await tx.serverMember.delete({ where: { id: target.id } });
+    await auditService.record(tx, { serverId, actorId, action: "member_kick", targetUserId: targetId });
+  });
   emitToUser(targetId, SOCKET_EVENTS.serverRemoved, { serverId });
+  await notifyAdmins(serverId, "kick", actorId, targetId);
 }
 
 /** Removes the member and keeps them from joining again. */
@@ -304,8 +383,34 @@ export async function ban(serverId: string, targetId: string, actorId: string) {
       create: { serverId, userId: targetId, bannedBy: actorId },
       update: {},
     });
+    await auditService.record(tx, { serverId, actorId, action: "member_ban", targetUserId: targetId });
   });
   emitToUser(targetId, SOCKET_EVENTS.serverRemoved, { serverId });
+  await notifyAdmins(serverId, "ban", actorId, targetId);
+}
+
+/** Banned users with who banned them, newest first. Needs BAN_MEMBERS (and RLS checks it too). */
+export async function listBans(serverId: string, userId: string) {
+  await requirePermission(serverId, userId, "BAN_MEMBERS");
+  const bans = await withUser(userId, (tx) =>
+    tx.serverBan.findMany({ where: { serverId }, orderBy: { createdAt: "desc" } }),
+  );
+  const profiles = await usersService.getProfiles([...new Set(bans.flatMap((b) => [b.userId, b.bannedBy]))]);
+  return bans.map((ban) => ({
+    user: profiles.get(ban.userId) ?? null,
+    bannedBy: profiles.get(ban.bannedBy) ?? null,
+    createdAt: ban.createdAt,
+  }));
+}
+
+/** Lifts a ban; the user can join again. */
+export async function unban(serverId: string, targetId: string, actorId: string) {
+  await requirePermission(serverId, actorId, "BAN_MEMBERS");
+  await withUser(actorId, async (tx) => {
+    const { count } = await tx.serverBan.deleteMany({ where: { serverId, userId: targetId } });
+    if (count === 0) throw new HttpError(404, "Ban not found");
+    await auditService.record(tx, { serverId, actorId, action: "member_unban", targetUserId: targetId });
+  });
 }
 
 /**
@@ -387,7 +492,16 @@ export async function requirePermission(
 
 export async function update(serverId: string, userId: string, input: UpdateServerInput) {
   await requirePermission(serverId, userId, "MANAGE_SERVER");
-  return prisma.server.update({ where: { id: serverId }, data: input });
+  return prisma.$transaction(async (tx) => {
+    const server = await tx.server.update({ where: { id: serverId }, data: input });
+    await auditService.record(tx, {
+      serverId,
+      actorId: userId,
+      action: "server_update",
+      details: { fields: Object.keys(input).filter((k) => input[k as keyof UpdateServerInput] !== undefined) },
+    });
+    return server;
+  });
 }
 
 export async function remove(serverId: string, userId: string) {
@@ -407,7 +521,11 @@ async function replaceImage(
   await requirePermission(serverId, userId, "MANAGE_SERVER");
   const previous = await getById(serverId);
   const key = await imagesService.store(file, folder, serverId);
-  const server = await prisma.server.update({ where: { id: serverId }, data: { [column]: key } });
+  const server = await prisma.$transaction(async (tx) => {
+    const updated = await tx.server.update({ where: { id: serverId }, data: { [column]: key } });
+    await auditService.record(tx, { serverId, actorId: userId, action: "server_update", details: { fields: [column] } });
+    return updated;
+  });
   const old = previous[column];
   if (old) await imagesService.remove(old).catch(() => {});
   return server;

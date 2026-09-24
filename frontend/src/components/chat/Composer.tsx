@@ -1,5 +1,5 @@
-import { File as FileIcon, Mic, Paperclip, Square, Trash2, X } from "lucide-react";
-import { useRef, useState, type KeyboardEvent } from "react";
+import { CornerUpLeft, File as FileIcon, Mic, Paperclip, Square, Trash2, X } from "lucide-react";
+import { useCallback, useRef, useState, type KeyboardEvent } from "react";
 import { EVERYONE } from "../../lib/mentions";
 import { ATTACHMENT_ACCEPT, LIMITS } from "../../constants/limits";
 import { formatBytes, formatDuration } from "../../lib/utils";
@@ -16,6 +16,8 @@ export function Composer({
   voice,
   attacher,
   mentionNames,
+  replying,
+  cancelReply,
   onSubmit,
   onInput,
   onKeyDown,
@@ -25,6 +27,10 @@ export function Composer({
   // `from`: where the "@" sits in the text. The textarea stays uncontrolled, so it is edited in place.
   const [suggest, setSuggest] = useState<{ from: number; options: string[] } | null>(null);
   const [active, setActive] = useState(0);
+  // Keyed by the replied message below, so it runs each time a (new) reply starts: type right away.
+  const focusText = useCallback((el: HTMLElement | null) => {
+    if (el) textarea.current?.focus();
+  }, []);
 
   const update = (el: HTMLTextAreaElement) => {
     const typing = mentionNames && /(?<![\p{L}\p{N}_])@([^\s@]*)$/u.exec(el.value.slice(0, el.selectionStart));
@@ -46,6 +52,7 @@ export function Composer({
   };
 
   const keyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (!suggest && replying && event.key === "Escape") return cancelReply?.();
     if (!suggest) return onKeyDown(event);
     const { options } = suggest;
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
@@ -78,6 +85,18 @@ export function Composer({
         <p className="chat-composer-error" role="alert">
           {shownError}
         </p>
+      )}
+      {replying && (
+        <div className="chat-composer-reply" key={replying.id} ref={focusText}>
+          <CornerUpLeft aria-hidden />
+          <span>
+            Respondendo a <strong>{replying.name}</strong>: {replying.preview}
+          </span>
+          <button type="button" title="Cancelar resposta" onClick={cancelReply}>
+            <X aria-hidden />
+            <span className="sr-only">Cancelar resposta</span>
+          </button>
+        </div>
       )}
       {attacher?.pending && (
         <div className="chat-attach-tray" aria-label="Arquivo para enviar">

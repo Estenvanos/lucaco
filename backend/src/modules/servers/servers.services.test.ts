@@ -9,20 +9,26 @@ const serverMember = { create: mock(), findUnique: mock(), findMany: mock(), del
 const role = { create: mock(), findFirst: mock() };
 const invite = { create: mock(), findUnique: mock(), updateMany: mock() };
 const channel = { createMany: mock() };
-const serverBan = { findUnique: mock(), upsert: mock() };
+const serverBan = { findUnique: mock(), upsert: mock(), findMany: mock(), deleteMany: mock() };
+const tx = { server, serverMember, role, invite, channel, serverBan };
 const prisma = {
   server,
   serverMember,
   role,
   invite,
   serverBan,
-  $transaction: jest.fn(async (fn: (tx: unknown) => unknown) =>
-    fn({ server, serverMember, role, invite, channel, serverBan }),
-  ),
+  $transaction: jest.fn(async (fn: (tx: unknown) => unknown) => fn(tx)),
 };
+const withUser = jest.fn(async (_userId: string, fn: (tx: unknown) => unknown) => fn(tx));
 const emitToUser = mock();
+const record = mock();
+const notify = mock();
+const getProfiles = jest.fn(async (ids: string[]) => new Map(ids.map((id) => [id, { id, username: `u-${id}` }])));
 
-jest.unstable_mockModule("../../lib/prisma.js", () => ({ prisma }));
+jest.unstable_mockModule("../../lib/prisma.js", () => ({ prisma, withUser }));
+jest.unstable_mockModule("../audit/audit.services.js", () => ({ record }));
+jest.unstable_mockModule("../notifications/notifications.services.js", () => ({ notify }));
+jest.unstable_mockModule("../users/users.services.js", () => ({ getProfiles }));
 jest.unstable_mockModule("../../lib/storage.js", () => ({ signedGetUrl: jest.fn(async (k: string) => `signed:${k}`) }));
 jest.unstable_mockModule("../images/images.services.js", () => ({ store: mock(), remove: mock() }));
 jest.unstable_mockModule("../../lib/socket.js", () => ({ emitToUser }));
@@ -42,11 +48,16 @@ const serverRow = {
   category: "other",
   iconUrl: null,
   bannerUrl: null,
+  tag: null,
   visibility: "public" as const,
   createdAt: new Date(),
 };
 
-beforeEach(() => jest.clearAllMocks());
+beforeEach(() => {
+  jest.clearAllMocks();
+  // Nobody to notify unless a test lists members (admin notices read every membership).
+  serverMember.findMany.mockResolvedValue([]);
+});
 
 describe("has", () => {
   it("grants only the requested bit", () => {
@@ -349,6 +360,79 @@ describe("leave", () => {
   });
 });
 
+describe("admin notices", () => {
+  const ADMIN = "55555555-5555-5555-5555-555555555555";
+  const TARGET = "44444444-4444-4444-4444-444444444444";
+  const adminRole = { roleId: "ra", role: { permissions: PERMISSIONS.ADMINISTRATOR } };
+  const KICKER = "88888888-8888-8888-8888-888888888888";
+  const BANNER = "99999999-9999-9999-9999-999999999999";
+  /** Owner, an admin, the acting moderator, a kick-only and a ban-only moderator, a plain member. */
+  const membersWithAdmin = [
+    { id: "mo", userId: OWNER, roles: [] },
+    { id: "ma", userId: ADMIN, roles: [adminRole] },
+    { id: "mm", userId: MEMBER, roles: [adminRole] },
+    { id: "mk", userId: KICKER, roles: [{ roleId: "rk", role: { permissions: PERMISSIONS.KICK_MEMBERS } }] },
+    { id: "mb", userId: BANNER, roles: [{ roleId: "rb", role: { permissions: PERMISSIONS.BAN_MEMBERS } }] },
+    { id: "mp", userId: "77777777-7777-7777-7777-777777777777", roles: [] },
+  ];
+
+  beforeEach(() => {
+    serverMember.findUnique.mockReset();
+    server.findUnique.mockResolvedValue(serverRow);
+    role.findFirst.mockResolvedValue({ id: "everyone", permissions: DEFAULT_PERMISSIONS });
+    serverMember.findMany.mockResolvedValue(membersWithAdmin);
+  });
+
+  it("tells the owner, admins and kick/ban moderators who joined, not the newcomer or plain members", async () => {
+    serverMember.findUnique.mockResolvedValue(null);
+    serverMember.create.mockResolvedValue({ id: "m9", serverId: SERVER, userId: TARGET });
+
+    await servers.join(SERVER, TARGET);
+
+    const receivers = notify.mock.calls.map(([n]) => n.receiverId).sort();
+    expect(receivers).toEqual([OWNER, ADMIN, MEMBER, KICKER, BANNER].sort());
+    expect(notify).toHaveBeenCalledWith(
+      expect.objectContaining({ tag: "server_activity", ownerId: TARGET, serverId: SERVER, subtitle: "Sala", title: `u-${TARGET} entrou no server` }),
+    );
+  });
+
+  it("says who kicked whom, and never notifies the moderator who did it", async () => {
+    serverMember.findUnique
+      .mockResolvedValueOnce({ id: "mm", roles: [adminRole] })
+      .mockResolvedValueOnce({ id: "t1", userId: TARGET, roles: [] });
+
+    await servers.kick(SERVER, TARGET, MEMBER);
+
+    const receivers = notify.mock.calls.map(([n]) => n.receiverId);
+    expect(receivers).not.toContain(MEMBER);
+    expect(receivers.sort()).toEqual([OWNER, ADMIN, KICKER, BANNER].sort());
+    expect(notify).toHaveBeenCalledWith(expect.objectContaining({ title: `u-${MEMBER} expulsou u-${TARGET}` }));
+  });
+
+  it("announces bans and departures too", async () => {
+    serverMember.findUnique
+      .mockResolvedValueOnce({ id: "mm", roles: [adminRole] })
+      .mockResolvedValueOnce({ id: "t1", userId: TARGET, roles: [] });
+    await servers.ban(SERVER, TARGET, MEMBER);
+    expect(notify).toHaveBeenCalledWith(expect.objectContaining({ title: `u-${MEMBER} baniu u-${TARGET}` }));
+
+    serverMember.findUnique.mockResolvedValue({ id: "t1", roles: [] });
+    await servers.leave(SERVER, TARGET);
+    expect(notify).toHaveBeenCalledWith(expect.objectContaining({ title: `u-${TARGET} saiu do server` }));
+  });
+
+  it("keeps the action when a notice fails", async () => {
+    serverMember.findUnique.mockResolvedValue(null);
+    serverMember.create.mockResolvedValue({ id: "m9", serverId: SERVER, userId: TARGET });
+    notify.mockRejectedValue(new Error("db down"));
+    const error = jest.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(servers.join(SERVER, TARGET)).resolves.toMatchObject({ id: "m9" });
+    error.mockRestore();
+    notify.mockReset();
+  });
+});
+
 describe("getById", () => {
   it("404s for an unknown server", async () => {
     server.findUnique.mockResolvedValue(null);
@@ -463,6 +547,7 @@ describe("updateBanner", () => {
 
   it("stores the banner in its own folder and removes the previous one", async () => {
     server.findUnique.mockResolvedValue({ ...serverRow, bannerUrl: "images/banners/old.webp" });
+    serverMember.findUnique.mockResolvedValue({ id: "m0", roles: [] });
     jest.mocked(imagesService.store).mockResolvedValue("images/banners/new.webp");
     jest.mocked(imagesService.remove).mockResolvedValue(undefined);
     server.update.mockResolvedValue({ ...serverRow, bannerUrl: "images/banners/new.webp" });
@@ -521,6 +606,19 @@ describe("kick and ban", () => {
     expect(emitToUser).toHaveBeenCalledWith(TARGET, "server:removed", { serverId: SERVER });
   });
 
+  it("records the kick in the audit log inside the same transaction", async () => {
+    setup(actorWith(PERMISSIONS.KICK_MEMBERS), target());
+
+    await servers.kick(SERVER, TARGET, MEMBER);
+
+    expect(record).toHaveBeenCalledWith(tx, {
+      serverId: SERVER,
+      actorId: MEMBER,
+      action: "member_kick",
+      targetUserId: TARGET,
+    });
+  });
+
   it("403s a kick without KICK_MEMBERS", async () => {
     setup(actorWith(0n), target());
 
@@ -568,6 +666,7 @@ describe("kick and ban", () => {
       expect.objectContaining({ create: { serverId: SERVER, userId: TARGET, bannedBy: MEMBER } }),
     );
     expect(emitToUser).toHaveBeenCalledWith(TARGET, "server:removed", { serverId: SERVER });
+    expect(record).toHaveBeenCalledWith(tx, expect.objectContaining({ action: "member_ban", targetUserId: TARGET }));
   });
 
   it("403s a ban with only KICK_MEMBERS", async () => {
@@ -575,5 +674,102 @@ describe("kick and ban", () => {
 
     await expect(servers.ban(SERVER, TARGET, MEMBER)).rejects.toMatchObject({ status: 403 });
     expect(serverBan.upsert).not.toHaveBeenCalled();
+    expect(record).not.toHaveBeenCalled();
+  });
+});
+
+describe("bans list and unban", () => {
+  const TARGET = "44444444-4444-4444-4444-444444444444";
+  beforeEach(() => serverMember.findUnique.mockReset());
+  const actorWith = (permissions: bigint) => {
+    server.findUnique.mockResolvedValue(serverRow);
+    role.findFirst.mockResolvedValue({ id: "everyone", permissions: DEFAULT_PERMISSIONS });
+    serverMember.findUnique.mockResolvedValue({ id: "a1", roles: [{ roleId: "r", role: { permissions } }] });
+  };
+
+  it("lists bans with both profiles, as the caller (RLS applies)", async () => {
+    actorWith(PERMISSIONS.BAN_MEMBERS);
+    serverBan.findMany.mockResolvedValue([{ userId: TARGET, bannedBy: MEMBER, createdAt: new Date() }]);
+
+    const bans = await servers.listBans(SERVER, MEMBER);
+
+    expect(withUser).toHaveBeenCalledWith(MEMBER, expect.any(Function));
+    expect(bans[0]).toMatchObject({ user: { id: TARGET }, bannedBy: { id: MEMBER } });
+  });
+
+  it("403s listing bans without BAN_MEMBERS", async () => {
+    actorWith(PERMISSIONS.KICK_MEMBERS);
+
+    await expect(servers.listBans(SERVER, MEMBER)).rejects.toMatchObject({ status: 403 });
+    expect(serverBan.findMany).not.toHaveBeenCalled();
+  });
+
+  it("unbans and records it", async () => {
+    actorWith(PERMISSIONS.BAN_MEMBERS);
+    serverBan.deleteMany.mockResolvedValue({ count: 1 });
+
+    await servers.unban(SERVER, TARGET, MEMBER);
+
+    expect(serverBan.deleteMany).toHaveBeenCalledWith({ where: { serverId: SERVER, userId: TARGET } });
+    expect(record).toHaveBeenCalledWith(tx, expect.objectContaining({ action: "member_unban", targetUserId: TARGET }));
+  });
+
+  it("404s unbanning someone who is not banned", async () => {
+    actorWith(PERMISSIONS.BAN_MEMBERS);
+    serverBan.deleteMany.mockResolvedValue({ count: 0 });
+
+    await expect(servers.unban(SERVER, TARGET, MEMBER)).rejects.toMatchObject({ status: 404 });
+    expect(record).not.toHaveBeenCalled();
+  });
+
+  it("403s an unban without BAN_MEMBERS", async () => {
+    actorWith(0n);
+
+    await expect(servers.unban(SERVER, TARGET, MEMBER)).rejects.toMatchObject({ status: 403 });
+    expect(serverBan.deleteMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("update", () => {
+  it("saves the profile and records which fields changed", async () => {
+    server.findUnique.mockResolvedValue(serverRow);
+    serverMember.findUnique.mockResolvedValue({ id: "m0", roles: [] });
+    role.findFirst.mockResolvedValue({ permissions: DEFAULT_PERMISSIONS });
+    server.update.mockResolvedValue({ ...serverRow, tag: "LUC" });
+
+    const updated = await servers.update(SERVER, OWNER, { name: "Nova", tag: "LUC" });
+
+    expect(server.update).toHaveBeenCalledWith({ where: { id: SERVER }, data: { name: "Nova", tag: "LUC" } });
+    expect(record).toHaveBeenCalledWith(tx, expect.objectContaining({ action: "server_update", details: { fields: ["name", "tag"] } }));
+    expect(updated.tag).toBe("LUC");
+  });
+
+  it("403s without MANAGE_SERVER", async () => {
+    server.findUnique.mockResolvedValue(serverRow);
+    serverMember.findUnique.mockResolvedValue({ id: "m1", roles: [] });
+    role.findFirst.mockResolvedValue({ permissions: DEFAULT_PERMISSIONS });
+
+    await expect(servers.update(SERVER, MEMBER, { name: "Nova" })).rejects.toMatchObject({ status: 403 });
+    expect(server.update).not.toHaveBeenCalled();
+  });
+});
+
+describe("getMemberById", () => {
+  it("404s a membership from another server", async () => {
+    serverMember.findUnique.mockResolvedValue({ id: "m1", serverId: "99999999-9999-9999-9999-999999999999" });
+
+    await expect(servers.getMemberById(SERVER, "m1")).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("returns the membership of this server", async () => {
+    serverMember.findUnique.mockResolvedValue({ id: "m1", serverId: SERVER, userId: MEMBER });
+
+    await expect(servers.getMemberById(SERVER, "m1")).resolves.toMatchObject({ userId: MEMBER });
+  });
+});
+
+describe("toPublicServer tag", () => {
+  it("exposes the tag", async () => {
+    await expect(servers.toPublicServer({ ...serverRow, tag: "LUC" })).resolves.toMatchObject({ tag: "LUC" });
   });
 });

@@ -1,8 +1,8 @@
 import type { ButtonHTMLAttributes, ChangeEvent, FormEvent, InputHTMLAttributes, KeyboardEvent, ReactNode } from "react";
 import type { ZodForm } from "./form.types";
 import type { AddFriendInput, FriendsTab, PublicFriendship } from "./friends.types";
-import type { Attacher, AttachmentRef, AudioRef, ChatRow, Conversation, KeyPrompt, VoiceRecorder } from "./messages.types";
-import type { SettingsSection, UserProfile } from "./users.types";
+import type { Attacher, AttachmentRef, AudioRef, ChatMessage, ChatRow, Conversation, KeyPrompt, Reaction, VoiceRecorder } from "./messages.types";
+import type { UserProfile } from "./users.types";
 import type { AppNotification } from "./notifications.types";
 import type { PasswordStrength } from "./password.types";
 import type { UserAudio, VoiceSnapshot, VoiceStream, VoiceTile } from "./voice.types";
@@ -16,9 +16,12 @@ import type {
   OverwriteTarget,
   Role,
   PublicServer,
+  PermissionName,
   ServerCategory,
   ServerMember,
 } from "./servers.types";
+import type { AuditEntry } from "./audit.types";
+import type { useServerMembers } from "../hooks/useServerMembers";
 
 export type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & { loading?: boolean };
 
@@ -189,7 +192,28 @@ export type MessageListProps = {
   /** Whether the viewer may delete this message (their own, or MANAGE_MESSAGES in a channel). */
   canDelete: (row: ChatRow) => boolean;
   onDelete: (row: ChatRow) => void;
+  /** The viewer: their reactions are highlighted. */
+  meId: string;
+  onReply: (row: ChatRow) => void;
+  /** Toggles the viewer's emoji on the message. */
+  onReact: (row: ChatRow, emoji: string) => void;
 };
+
+/** The message a reply points at, shown above it; undefined when it is not loaded or was deleted. */
+export type ReplyQuoteProps = { original: ChatMessage | undefined; author: ChatPerson | null };
+
+export type ReactionsProps = { reactions: Reaction[]; meId: string; onToggle: (emoji: string) => void };
+
+/** The "..." on a message: reply, react, and delete when allowed. `id` names the popover. */
+export type MessageMenuProps = {
+  id: string;
+  canDelete: boolean;
+  onReply: () => void;
+  onReact: (emoji: string) => void;
+  onDelete: () => void;
+};
+
+export type SwipeToReplyProps = { onReply: () => void; children: ReactNode };
 
 export type ComposerProps = {
   placeholder: string;
@@ -204,6 +228,9 @@ export type ComposerProps = {
   attacher: Attacher | null;
   /** Server channels: names offered when typing `@`. */
   mentionNames?: string[];
+  /** The message being replied to, shown above the text box; null when not replying. */
+  replying?: { id: string; name: string; preview: string } | null;
+  cancelReply?: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onInput?: () => void;
   onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
@@ -226,6 +253,8 @@ export type ServerChannelsProps = {
   activeChannelId: string | null;
   /** Shows the "+" that opens the new channel screen. */
   canManage: boolean;
+  /** Shows the gear to the server settings page (any of its tabs is allowed). */
+  canConfigure: boolean;
   onCreateChannel: () => void;
   /** Opens a channel's settings; only offered where the user may change something. */
   onEditChannel: (channel: Channel) => void;
@@ -294,7 +323,21 @@ export type UserActionsMenuProps = {
   member?: { serverId: string; ownerId: string; memberId: string; isAdmin: boolean };
 };
 
-export type SettingsNavProps = { active: SettingsSection };
+/** Tab bar of a settings page; `hrefFor` builds each tab's link. */
+export type SettingsNavProps<T extends string> = {
+  label: string;
+  sections: { id: T; label: string }[];
+  active: T;
+  hrefFor: (id: T) => string;
+};
+
+export type ServerSettingsSectionProps = { server: PublicServer; permissions: PermissionName[] };
+
+export type RulesEditorProps = { serverId: string; initial: string[] };
+
+export type ServerMemberRowProps = { member: ServerMember; list: ReturnType<typeof useServerMembers> };
+
+export type AuditItemProps = { entry: AuditEntry };
 
 export type ChannelSettingsProps = {
   server: PublicServer;

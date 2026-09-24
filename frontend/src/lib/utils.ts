@@ -54,6 +54,7 @@ export function chatRows(newestFirst: ChatMessage[]): ChatRow[] {
       day: newDay ? date.toLocaleDateString("pt-BR", { day: "numeric", month: "long", year: "numeric" }) : null,
       first:
         newDay ||
+        !!message.answerFor || // a reply always shows who wrote it
         prev.senderId !== message.senderId ||
         date.getTime() - new Date(prev.createdAt).getTime() > GROUP_GAP_MS,
     });
@@ -168,6 +169,12 @@ export function formatDuration(ms: number) {
  * Asks before deleting a message, then runs `remove`; a failure is shown to the user.
  * ponytail: native confirm/alert — swap for a Modal if the look matters.
  */
+/** How a person is called in the chat: display name, else username. */
+export const nameOf = (person: { displayName: string | null; username: string }) => person.displayName ?? person.username;
+
+/** A failed chat action the user started (react, ...): there is no inline place to show it. */
+export const alertError = (err: unknown) => alert(err instanceof Error ? err.message : "Algo deu errado");
+
 export function confirmDelete(remove: () => Promise<void>) {
   if (!confirm("Excluir esta mensagem para todos? Isso não pode ser desfeito.")) return;
   remove().catch((err: unknown) => alert(err instanceof Error ? err.message : "Não foi possível excluir a mensagem"));
@@ -175,3 +182,6 @@ export function confirmDelete(remove: () => Promise<void>) {
 
 export const formatBytes = (bytes: number) =>
   bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+
+/** Role/tag colors travel as 0xRRGGBB numbers; CSS and <input type="color"> want "#rrggbb". */
+export const colorToHex = (color: number | null) => `#${(color ?? 0x8a8f98).toString(16).padStart(6, "0")}`;

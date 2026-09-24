@@ -7,6 +7,7 @@ import { z } from "zod";
 export const CIPHERTEXT_MAX_CHARS = 8 * 1024;
 
 const base64 = z.string().base64();
+const objectId = z.string().regex(/^[a-f\d]{24}$/i, "Invalid message id");
 
 const messageBody = {
   ciphertext: base64.min(1).max(CIPHERTEXT_MAX_CHARS),
@@ -17,6 +18,8 @@ const messageBody = {
   // can delete the file.
   contentType: z.enum(["text", "audio", "image", "file", "video"]).default("text"),
   mediaId: z.string().uuid().optional(),
+  /** The message this one replies to, in the same conversation. */
+  answerFor: objectId.optional(),
 };
 
 const carriesFile = (m: { contentType: string; mediaId?: string }) => (m.contentType === "text") === !m.mediaId;
@@ -41,8 +44,14 @@ export const sendChannelMessageSchema = z
 
 /** `peerId` is needed for a DM only: its conversation id cannot be turned back into the peer. */
 export const deleteMessageSchema = z.object({
-  messageId: z.string().regex(/^[a-f\d]{24}$/i, "Invalid message id"),
+  messageId: objectId,
   peerId: z.string().uuid().optional(),
+});
+
+/** Toggles one emoji of the caller on a message. A single emoji only, no text. */
+export const reactMessageSchema = deleteMessageSchema.extend({
+  // RegExp(): a /v literal needs target ES2024.
+  emoji: z.string().max(32).regex(new RegExp("^\\p{RGI_Emoji}$", "v"), "Not an emoji"),
 });
 
 const cursor = {
@@ -89,6 +98,7 @@ export type PeerInput = z.infer<typeof peerSchema>;
 export type SendMessageInput = z.infer<typeof sendMessageSchema>;
 export type HistoryInput = z.infer<typeof historySchema>;
 export type DeleteMessageInput = z.infer<typeof deleteMessageSchema>;
+export type ReactMessageInput = z.infer<typeof reactMessageSchema>;
 export type SendChannelMessageInput = z.infer<typeof sendChannelMessageSchema>;
 export type ChannelHistoryInput = z.infer<typeof channelHistorySchema>;
 export type CreateEpochInput = z.infer<typeof createEpochSchema>;

@@ -17,6 +17,8 @@ export const SOCKET_EVENTS = {
   messageDelete: "message:delete",
   messageDeleted: "message:deleted",
   messageTyping: "message:typing",
+  messageReact: "message:react",
+  messageReacted: "message:reacted",
   notificationNew: "notification:new",
   notificationRemoved: "notification:removed",
   serverRemoved: "server:removed",

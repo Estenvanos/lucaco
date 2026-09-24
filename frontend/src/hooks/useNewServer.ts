@@ -48,6 +48,7 @@ export function useNewServer() {
     category: "other",
     iconUrl: draft.iconUrl,
     bannerUrl: draft.bannerUrl,
+    tag: null,
     visibility: "public",
     createdAt: "",
     memberCount: 1,

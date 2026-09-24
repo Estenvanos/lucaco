@@ -1,11 +1,15 @@
 import { useState, type FormEvent, type KeyboardEvent } from "react";
 import { ApiError } from "../lib/api";
-import type { Outgoing } from "../types/messages.types";
+import type { ChatRow, Outgoing } from "../types/messages.types";
 
-/** Text box state shared by the DM and the channel chat: submit, Enter to send, the send error. */
-export function useComposer(send: (out: Outgoing) => Promise<void>) {
+/**
+ * Text box state shared by the DM and the channel chat: submit, Enter to send, the send error,
+ * and the message being replied to (sent as `answerFor`, cleared once the reply goes out).
+ */
+export function useComposer(send: (out: Outgoing, answerFor?: string) => Promise<void>) {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [replyTo, setReplyTo] = useState<ChatRow | null>(null);
 
   const onSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -14,13 +18,19 @@ export function useComposer(send: (out: Outgoing) => Promise<void>) {
     if (!text || sending) return;
     setSending(true);
     setError(null);
-    send({ text, audio: null, attachment: null })
-      .then(() => form.reset())
+    send({ text, audio: null, attachment: null }, replyTo?.id)
+      .then(() => {
+        form.reset();
+        setReplyTo(null);
+      })
       .catch((err: unknown) => setError(err instanceof ApiError ? err.message : "Mensagem não enviada"))
       .finally(() => setSending(false));
   };
 
   return {
+    replyTo,
+    reply: setReplyTo,
+    cancelReply: () => setReplyTo(null),
     sending,
     error,
     onSubmit,

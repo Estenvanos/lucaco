@@ -57,3 +57,18 @@ export const channelFormSchema = z.object({
     .max(LIMITS.voiceUsers.max, `De ${LIMITS.voiceUsers.min} a ${LIMITS.voiceUsers.max} pessoas`)
     .optional(),
 });
+
+export const serverProfileSchema = z.object({
+  name: createServerSchema.shape.name,
+  description: createServerSchema.shape.description,
+  // Blank clears the tag; the API uppercases it.
+  tag: z.union([
+    z.literal(""),
+    z.string().trim().regex(LIMITS.serverTag.pattern, "De 2 a 4 letras ou números"),
+  ]),
+});
+
+export const serverImageSchema = z
+  .instanceof(File)
+  .refine((file) => file.size > 0, "Escolha uma imagem")
+  .refine((file) => file.size <= LIMITS.imageMaxBytes, "Imagem de até 5 MB");

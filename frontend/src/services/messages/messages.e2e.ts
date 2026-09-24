@@ -118,6 +118,8 @@ export async function decryptMessage(key: CryptoKey | null, message: StoredMessa
     text: audio || attachment ? "" : plain,
     audio,
     attachment,
+    answerFor: message.answerFor ?? null,
+    reactions: message.reactions ?? [],
     createdAt: message.createdAt,
   };
 }

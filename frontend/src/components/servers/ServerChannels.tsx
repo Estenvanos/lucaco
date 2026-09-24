@@ -1,5 +1,5 @@
 import { Mic, MicOff, Phone, Settings, ScreenShare, ScreenShareOff, Volume2, VolumeX } from "lucide-react";
-import { NavLink } from "react-router";
+import { Link, NavLink } from "react-router";
 import { ROUTES } from "../../constants/routes";
 import { formatDate } from "../../lib/utils";
 import type { ServerChannelsProps } from "../../types/ui.types";
@@ -17,6 +17,7 @@ export function ServerChannels({
   textChannels,
   activeChannelId,
   canManage,
+  canConfigure,
   onCreateChannel,
   onEditChannel,
   voice,
@@ -58,9 +59,18 @@ export function ServerChannels({
           <ServerAvatar server={server} />
         </span>
         <div>
-          <h1>{server.name}</h1>
+          <h1>
+            {server.name}
+            {server.tag && <span className="server-tag">{server.tag}</span>}
+          </h1>
           <p>Criado {formatDate(server.createdAt)}</p>
         </div>
+        {canConfigure && (
+          <Link className="server-channel-gear server-info-gear" to={ROUTES.serverSettings(server.id)} title="Configurações do server">
+            <Settings aria-hidden />
+            <span className="sr-only">Configurações do server</span>
+          </Link>
+        )}
       </header>
 
       {voiceChannel && (

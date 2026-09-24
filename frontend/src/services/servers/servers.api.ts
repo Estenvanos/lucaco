@@ -16,8 +16,10 @@ import type {
   DiscoveredServer,
   JoinServerInput,
   PublicServer,
+  ServerBan,
   ServerImageKind,
   ServerMember,
+  ServerProfileValues,
 } from "../../types/servers.types";
 import { serversKeys } from "./servers.keys";
 
@@ -60,6 +62,14 @@ export const useUpdateServerImage = () =>
       body.append(kind, file);
       return request<PublicServer>(ENDPOINTS.servers.image(serverId, kind), { method: "PUT", body });
     },
+    onSuccess: invalidateList,
+  });
+
+/** Name, description and tag. */
+export const useUpdateServer = (serverId: string) =>
+  useMutation({
+    mutationFn: (input: ServerProfileValues) =>
+      request<PublicServer>(ENDPOINTS.servers.detail(serverId), { method: "PATCH", body: input }),
     onSuccess: invalidateList,
   });
 
@@ -115,7 +125,32 @@ export const useKickMember = (serverId: string) =>
 export const useBanMember = (serverId: string) =>
   useMutation({
     mutationFn: (userId: string) => request(ENDPOINTS.servers.ban(serverId, userId), { method: "PUT" }),
-    onSuccess: () => invalidateMembers(serverId),
+    onSuccess: () =>
+      Promise.all([
+        invalidateMembers(serverId),
+        queryClient.invalidateQueries({ queryKey: serversKeys.bans(serverId) }),
+      ]),
+  });
+
+export const useBans = (serverId: string, enabled: boolean) =>
+  useQuery({
+    queryKey: serversKeys.bans(serverId),
+    queryFn: () => request<ServerBan[]>(ENDPOINTS.servers.bans(serverId)),
+    enabled,
+  });
+
+export const useUnban = (serverId: string) =>
+  useMutation({
+    mutationFn: (userId: string) => request(ENDPOINTS.servers.ban(serverId, userId), { method: "DELETE" }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: serversKeys.bans(serverId) }),
+  });
+
+/** Gives (on) or takes (off) one role from one member. */
+export const useToggleRole = (serverId: string) =>
+  useMutation({
+    mutationFn: ({ roleId, memberId, on }: { roleId: string; memberId: string; on: boolean }) =>
+      request(ENDPOINTS.servers.roleMember(serverId, roleId, memberId), { method: on ? "PUT" : "DELETE" }),
+    onSettled: () => invalidateMembers(serverId),
   });
 
 /** Owner only: grants or drops the auto-created "Admin" role. */

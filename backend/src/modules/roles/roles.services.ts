@@ -3,6 +3,7 @@ import { PERMISSIONS, type PermissionName } from "../../lib/constants.js";
 import { HttpError } from "../../lib/http-error.js";
 import { toBitfield, toNames } from "../../lib/permissions.js";
 import { prisma } from "../../lib/prisma.js";
+import * as auditService from "../audit/audit.services.js";
 import * as serversService from "../servers/servers.services.js";
 import type { CreateRoleInput, UpdateRoleInput } from "./roles.schema.js";
 
@@ -94,12 +95,20 @@ export async function assign(serverId: string, roleId: string, memberId: string,
   const role = await getRole(serverId, roleId);
   await requireGrantable(serverId, userId, toNames(role.permissions));
   if (role.isDefault) throw new HttpError(409, "@everyone applies to every member already");
-  const member = await prisma.serverMember.findUnique({ where: { id: memberId } });
-  if (!member || member.serverId !== serverId) throw new HttpError(404, "Member not found");
-  await prisma.memberRole.upsert({
-    where: { memberId_roleId: { memberId, roleId } },
-    create: { memberId, roleId },
-    update: {},
+  const member = await serversService.getMemberById(serverId, memberId);
+  await prisma.$transaction(async (tx) => {
+    await tx.memberRole.upsert({
+      where: { memberId_roleId: { memberId, roleId } },
+      create: { memberId, roleId },
+      update: {},
+    });
+    await auditService.record(tx, {
+      serverId,
+      actorId: userId,
+      action: "role_add",
+      targetUserId: member.userId,
+      details: { roleId, roleName: role.name },
+    });
   });
 }
 
@@ -112,14 +121,23 @@ const ADMIN_ROLE_NAME = "Admin";
 export async function setAdmin(serverId: string, memberId: string, userId: string, admin: boolean) {
   const server = await serversService.getById(serverId);
   if (server.ownerId !== userId) throw new HttpError(403, "Only the owner can manage administrators");
-  const member = await prisma.serverMember.findUnique({ where: { id: memberId } });
-  if (!member || member.serverId !== serverId) throw new HttpError(404, "Member not found");
+  const member = await serversService.getMemberById(serverId, memberId);
   if (member.userId === server.ownerId) throw new HttpError(409, "The owner is always an administrator");
 
   const roles = await prisma.role.findMany({ where: { serverId } });
   const adminRoles = roles.filter((r) => serversService.has(r.permissions, "ADMINISTRATOR"));
+  const audit = (tx: Parameters<typeof auditService.record>[0]) =>
+    auditService.record(tx, {
+      serverId,
+      actorId: userId,
+      action: admin ? "admin_grant" : "admin_revoke",
+      targetUserId: member.userId,
+    });
   if (!admin) {
-    await prisma.memberRole.deleteMany({ where: { memberId, roleId: { in: adminRoles.map((r) => r.id) } } });
+    await prisma.$transaction(async (tx) => {
+      await tx.memberRole.deleteMany({ where: { memberId, roleId: { in: adminRoles.map((r) => r.id) } } });
+      await audit(tx);
+    });
     return;
   }
   const role =
@@ -127,15 +145,28 @@ export async function setAdmin(serverId: string, memberId: string, userId: strin
     (await prisma.role.create({
       data: { serverId, name: ADMIN_ROLE_NAME, permissions: PERMISSIONS.ADMINISTRATOR },
     }));
-  await prisma.memberRole.upsert({
-    where: { memberId_roleId: { memberId, roleId: role.id } },
-    create: { memberId, roleId: role.id },
-    update: {},
+  await prisma.$transaction(async (tx) => {
+    await tx.memberRole.upsert({
+      where: { memberId_roleId: { memberId, roleId: role.id } },
+      create: { memberId, roleId: role.id },
+      update: {},
+    });
+    await audit(tx);
   });
 }
 
 export async function unassign(serverId: string, roleId: string, memberId: string, userId: string) {
   const role = await getRole(serverId, roleId);
   await requireGrantable(serverId, userId, toNames(role.permissions));
-  await prisma.memberRole.deleteMany({ where: { memberId, roleId } });
+  const member = await serversService.getMemberById(serverId, memberId);
+  await prisma.$transaction(async (tx) => {
+    await tx.memberRole.deleteMany({ where: { memberId, roleId } });
+    await auditService.record(tx, {
+      serverId,
+      actorId: userId,
+      action: "role_remove",
+      targetUserId: member.userId,
+      details: { roleId, roleName: role.name },
+    });
+  });
 }

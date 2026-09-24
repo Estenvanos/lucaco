@@ -14,6 +14,7 @@ import type {
   HistoryResponse,
   MessageContentType,
   Outgoing,
+  Reaction,
   StoredMessage,
 } from "../../types/messages.types";
 import { channelKeyring, keyForEpoch } from "./messages.channel-e2e";
@@ -117,11 +118,21 @@ async function emit(payload: object) {
   return ack as StoredMessage;
 }
 
+/** The sent message as the cache holds it, from what the composer had and what the API stored. */
+const echo = (me: string, out: Outgoing, stored: StoredMessage): ChatMessage => ({
+  id: stored.id,
+  senderId: me,
+  ...out,
+  answerFor: stored.answerFor,
+  reactions: [],
+  createdAt: stored.createdAt,
+});
+
 /** Encrypts in the browser and sends through the user's socket; the server only sees ciphertext. */
-export async function sendMessage(me: string, peerId: string, out: Outgoing) {
+export async function sendMessage(me: string, peerId: string, out: Outgoing, answerFor?: string) {
   const key = await chatKey(me, peerId);
-  const stored = await emit({ peerId, contentType: contentType(out), mediaId: mediaId(out), ...(await sealed(key, out)) });
-  addToChat(peerId, { id: stored.id, senderId: me, ...out, createdAt: stored.createdAt });
+  const stored = await emit({ peerId, contentType: contentType(out), mediaId: mediaId(out), answerFor, ...(await sealed(key, out)) });
+  addToChat(peerId, echo(me, out, stored));
   queryClient.invalidateQueries({ queryKey: messagesKeys.conversations() });
 }
 
@@ -131,6 +142,7 @@ export async function sendChannelMessage(
   channelId: string,
   out: Outgoing,
   mentions?: Mentions,
+  answerFor?: string,
   retry = true,
 ): Promise<void> {
   const ring = await channelKeyring(me, channelId, !retry);
@@ -141,12 +153,13 @@ export async function sendChannelMessage(
       contentType: contentType(out),
       mediaId: mediaId(out),
       mentions,
+      answerFor,
       ...(await sealed(ring.keys.get(ring.current)!, out)),
     });
-    addToCache(messagesKeys.channel(channelId), { id: stored.id, senderId: me, ...out, createdAt: stored.createdAt });
+    addToCache(messagesKeys.channel(channelId), echo(me, out, stored));
   } catch (err) {
     // The API's 409 for a message sealed with an epoch someone just rotated away from.
-    if (retry && err instanceof ApiError && err.message === "Stale key epoch") return sendChannelMessage(me, channelId, out, mentions, false);
+    if (retry && err instanceof ApiError && err.message === "Stale key epoch") return sendChannelMessage(me, channelId, out, mentions, answerFor, false);
     throw err;
   }
 }
@@ -169,4 +182,24 @@ export async function deleteMessage(queryKey: readonly unknown[], messageId: str
   const ack = await socket.timeout(10_000).emitWithAck(SOCKET_EVENTS.messageDelete, { messageId, peerId });
   if ("error" in ack) throw new ApiError(400, String(ack.error));
   removeFromCache(queryKey, messageId);
+}
+
+/** Replaces a message's reactions in an open chat (the ack and the broadcast both deliver them). */
+export function setReactions(queryKey: readonly unknown[], messageId: string, reactions: Reaction[]) {
+  queryClient.setQueryData<InfiniteData<ChatPage>>(queryKey, (data) =>
+    data && {
+      ...data,
+      pages: data.pages.map((p) => ({
+        ...p,
+        messages: p.messages.map((m) => (m.id === messageId ? { ...m, reactions } : m)),
+      })),
+    },
+  );
+}
+
+/** Toggles my `emoji` on a message. `peerId` is needed in a DM only. */
+export async function reactMessage(queryKey: readonly unknown[], messageId: string, emoji: string, peerId?: string) {
+  const ack = await socket.timeout(10_000).emitWithAck(SOCKET_EVENTS.messageReact, { messageId, emoji, peerId });
+  if ("error" in ack) throw new ApiError(400, String(ack.error));
+  setReactions(queryKey, messageId, ack.reactions);
 }

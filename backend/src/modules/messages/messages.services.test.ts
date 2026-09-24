@@ -4,7 +4,14 @@ import { MongoServerError, ObjectId } from "mongodb";
 /** jest.fn() with no type argument infers `never` parameters, which breaks mockResolvedValue. */
 const mock = () => jest.fn<(...args: any[]) => any>();
 
-const messages = { insertOne: mock(), findOne: mock(), find: mock(), aggregate: mock(), deleteOne: mock() };
+const messages = {
+  insertOne: mock(),
+  findOne: mock(),
+  find: mock(),
+  aggregate: mock(),
+  deleteOne: mock(),
+  findOneAndUpdate: mock(),
+};
 const areFriends = mock();
 const list = mock();
 const canonicalPair = (a: string, b: string) =>
@@ -254,9 +261,13 @@ describe("conversations", () => {
 });
 
 describe("markRead", () => {
-  it("clears only the peer's unread-message notices, for the reader", async () => {
+  it("clears the peer's unread-message, reply and reaction notices, for the reader", async () => {
     await service.markRead(ALICE, BOB);
-    expect(notifications.dismissFrom).toHaveBeenCalledWith(ALICE, BOB, "new_message");
+    expect(notifications.dismissFrom.mock.calls).toEqual([
+      [ALICE, BOB, "new_message"],
+      [ALICE, BOB, "reply"],
+      [ALICE, BOB, "reaction"],
+    ]);
   });
 });
 
@@ -452,6 +463,165 @@ describe("remove", () => {
   it("404s a message that does not exist", async () => {
     messages.findOne.mockResolvedValue(null);
     await expect(service.remove(ALICE, { messageId: id.toHexString() })).rejects.toMatchObject({ status: 404 });
+  });
+});
+
+describe("replies", () => {
+  const original = new ObjectId();
+
+  it("stores answerFor when replying to a message of the same conversation", async () => {
+    messages.findOne.mockResolvedValue(doc({ _id: original }));
+    messages.insertOne.mockResolvedValue({});
+
+    const message = await service.send(ALICE, { ...input, answerFor: original.toHexString() });
+
+    expect(messages.findOne).toHaveBeenCalledWith({ _id: original, channelId: service.dmId(ALICE, BOB) });
+    expect(messages.insertOne.mock.calls[0]![0]).toMatchObject({ answerFor: original.toHexString() });
+    expect(message.answerFor).toBe(original.toHexString());
+  });
+
+  it("notifies the author of the replied DM message", async () => {
+    messages.findOne.mockResolvedValue(doc({ _id: original, senderId: BOB }));
+    messages.insertOne.mockResolvedValue({});
+
+    await service.send(ALICE, { ...input, answerFor: original.toHexString() });
+
+    expect(notifications.notify).toHaveBeenCalledWith(
+      expect.objectContaining({ tag: "reply", ownerId: ALICE, receiverId: BOB, subtitle: "respondeu sua mensagem" }),
+    );
+  });
+
+  it("notifies the author of a replied channel message, with where it happened", async () => {
+    const CHANNEL = "55555555-5555-5555-5555-555555555555";
+    messages.findOne.mockResolvedValue(doc({ _id: original, scope: "channel", channelId: CHANNEL, senderId: BOB }));
+    messages.insertOne.mockResolvedValue({});
+    channelKeyEpoch.findFirst.mockResolvedValue({ epoch: 1 });
+    channelsService.getById.mockResolvedValue({ id: CHANNEL, serverId: "srv", name: "geral" });
+    const { peerId: _, ...body } = input;
+
+    await service.sendToChannel(ALICE, {
+      ...body,
+      channelId: CHANNEL,
+      keyEpoch: 1,
+      mentions: { everyone: false, userIds: [] },
+      answerFor: original.toHexString(),
+    });
+
+    expect(notifications.notify).toHaveBeenCalledWith(
+      expect.objectContaining({ tag: "reply", receiverId: BOB, serverId: "srv", channelId: CHANNEL }),
+    );
+  });
+
+  it("does not notify someone replying to themselves", async () => {
+    messages.findOne.mockResolvedValue(doc({ _id: original, senderId: ALICE }));
+    messages.insertOne.mockResolvedValue({});
+
+    await service.send(ALICE, { ...input, answerFor: original.toHexString() });
+
+    expect(notifications.notify).not.toHaveBeenCalledWith(expect.objectContaining({ tag: "reply" }));
+  });
+
+  it("rejects a reply to a message of another conversation", async () => {
+    messages.findOne.mockResolvedValue(null); // no message with that id in this conversation
+
+    await expect(service.send(ALICE, { ...input, answerFor: original.toHexString() })).rejects.toMatchObject({ status: 400 });
+    expect(messages.insertOne).not.toHaveBeenCalled();
+  });
+});
+
+describe("react", () => {
+  const CHANNEL = "55555555-5555-5555-5555-555555555555";
+  const id = new ObjectId();
+  const messageId = id.toHexString();
+  const afterUpdate = (reactions: unknown[]) => messages.findOneAndUpdate.mockResolvedValue(doc({ _id: id, reactions }));
+  /** The update pipeline's two parts: whose reactions it drops, and what it appends. */
+  const update = (call: number) => {
+    const [filter, added] = messages.findOneAndUpdate.mock.calls[call]![1][0].$set.reactions.$concatArrays;
+    return { dropsFrom: filter.$filter.cond.$ne[1], added };
+  };
+
+  it("adds a reaction, and the same emoji again removes it", async () => {
+    messages.findOne.mockResolvedValue(doc({ _id: id }));
+    afterUpdate([{ emoji: "👍", userId: BOB }]);
+
+    const added = await service.react(BOB, { messageId, emoji: "👍", peerId: ALICE });
+
+    expect(update(0)).toEqual({ dropsFrom: BOB, added: [{ emoji: "👍", userId: BOB }] });
+    expect(added).toEqual({
+      id: messageId,
+      channelId: service.dmId(ALICE, BOB),
+      reactions: [{ emoji: "👍", userId: BOB }],
+      recipients: [BOB, ALICE],
+    });
+
+    messages.findOne.mockResolvedValue(doc({ _id: id, reactions: [{ emoji: "👍", userId: BOB }] }));
+    afterUpdate([]);
+
+    const removed = await service.react(BOB, { messageId, emoji: "👍", peerId: ALICE });
+
+    expect(update(1)).toEqual({ dropsFrom: BOB, added: [] });
+    expect(removed.reactions).toEqual([]);
+  });
+
+  it("keeps one reaction per person: another emoji replaces the old one", async () => {
+    messages.findOne.mockResolvedValue(doc({ _id: id, reactions: [{ emoji: "👍", userId: BOB }, { emoji: "👍", userId: CAROL }] }));
+    afterUpdate([{ emoji: "👍", userId: CAROL }, { emoji: "🔥", userId: BOB }]);
+
+    await service.react(BOB, { messageId, emoji: "🔥", peerId: ALICE });
+
+    // Every reaction of BOB is dropped, CAROL's stays, then the new one goes in.
+    expect(update(0)).toEqual({ dropsFrom: BOB, added: [{ emoji: "🔥", userId: BOB }] });
+  });
+
+  it("notifies the author of a new reaction, not of a removal nor of their own", async () => {
+    messages.findOne.mockResolvedValue(doc({ _id: id })); // ALICE's message
+    afterUpdate([{ emoji: "👍", userId: BOB }]);
+    await service.react(BOB, { messageId, emoji: "👍", peerId: ALICE });
+    expect(notifications.notify).toHaveBeenCalledWith(
+      expect.objectContaining({ tag: "reaction", ownerId: BOB, receiverId: ALICE, subtitle: "reagiu com 👍 à sua mensagem" }),
+    );
+
+    notifications.notify.mockClear();
+    messages.findOne.mockResolvedValue(doc({ _id: id, reactions: [{ emoji: "👍", userId: BOB }] }));
+    afterUpdate([]);
+    await service.react(BOB, { messageId, emoji: "👍", peerId: ALICE });
+
+    messages.findOne.mockResolvedValue(doc({ _id: id }));
+    afterUpdate([{ emoji: "👍", userId: ALICE }]);
+    await service.react(ALICE, { messageId, emoji: "👍", peerId: BOB });
+
+    expect(notifications.notify).not.toHaveBeenCalled();
+  });
+
+  it("does not let a stranger react to a DM", async () => {
+    messages.findOne.mockResolvedValue(doc({ _id: id }));
+
+    await expect(service.react(CAROL, { messageId, emoji: "👍", peerId: ALICE })).rejects.toMatchObject({ status: 400 });
+    expect(messages.findOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it("does not let someone who cannot view the channel react", async () => {
+    messages.findOne.mockResolvedValue(doc({ _id: id, scope: "channel", channelId: CHANNEL }));
+    channelsService.canView.mockRejectedValue(Object.assign(new Error("x"), { status: 404 }));
+
+    await expect(service.react(CAROL, { messageId, emoji: "👍" })).rejects.toMatchObject({ status: 404 });
+    expect(messages.findOneAndUpdate).not.toHaveBeenCalled();
+  });
+
+  it("rejects a reaction on a missing message", async () => {
+    messages.findOne.mockResolvedValue(null);
+    await expect(service.react(BOB, { messageId, emoji: "👍", peerId: ALICE })).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("caps distinct emojis per message, but still lets people join an existing one", async () => {
+    const emojis = [..."😀😁😂🤣😃😄😅😆😉😊😋😎😍😘🥰😗😙😚🙂🤗"];
+    const reactions = emojis.map((emoji) => ({ emoji, userId: ALICE }));
+    messages.findOne.mockResolvedValue(doc({ _id: id, reactions }));
+
+    await expect(service.react(BOB, { messageId, emoji: "🔥", peerId: ALICE })).rejects.toMatchObject({ status: 409 });
+
+    afterUpdate(reactions);
+    await expect(service.react(BOB, { messageId, emoji: "😀", peerId: ALICE })).resolves.toBeDefined();
   });
 });
 

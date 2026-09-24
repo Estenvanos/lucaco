@@ -5,18 +5,25 @@ import { DEFAULT_PERMISSIONS, PERMISSIONS } from "../../lib/constants.js";
 const mock = () => jest.fn<(...args: any[]) => any>();
 
 const role = { findMany: mock(), findUnique: mock(), create: mock(), update: mock(), delete: mock() };
-const serverMember = { findUnique: mock() };
 const getById = mock();
+const getMemberById = mock();
 const memberRole = { upsert: mock(), deleteMany: mock() };
+const tx = { role, memberRole };
+const record = mock();
+const notFound = () => Object.assign(new Error("Member not found"), { status: 404 });
 
 const requirePermission = jest.fn<(s: string, u: string, p: string) => Promise<bigint>>();
 const has = jest.fn<(p: bigint, name: keyof typeof PERMISSIONS) => boolean>();
 
-jest.unstable_mockModule("../../lib/prisma.js", () => ({ prisma: { role, serverMember, memberRole } }));
+jest.unstable_mockModule("../../lib/prisma.js", () => ({
+  prisma: { role, memberRole, $transaction: jest.fn(async (fn: (t: unknown) => unknown) => fn(tx)) },
+}));
+jest.unstable_mockModule("../audit/audit.services.js", () => ({ record }));
 jest.unstable_mockModule("../servers/servers.services.js", () => ({
   requirePermission,
   has,
   getById,
+  getMemberById,
   getMember: jest.fn(async () => ({ id: "m1" })),
 }));
 
@@ -133,7 +140,7 @@ describe("remove", () => {
 describe("assign", () => {
   it("links member and role once (upsert), so a repeat is not an error", async () => {
     role.findUnique.mockResolvedValue(roleRow());
-    serverMember.findUnique.mockResolvedValue({ id: MEMBER, serverId: SERVER });
+    getMemberById.mockResolvedValue({ id: MEMBER, serverId: SERVER, userId: "t" });
 
     await roles.assign(SERVER, ROLE, MEMBER, USER);
 
@@ -144,9 +151,24 @@ describe("assign", () => {
     });
   });
 
+  it("records the role change against the member in the same transaction", async () => {
+    role.findUnique.mockResolvedValue(roleRow());
+    getMemberById.mockResolvedValue({ id: MEMBER, serverId: SERVER, userId: "t" });
+
+    await roles.assign(SERVER, ROLE, MEMBER, USER);
+
+    expect(record).toHaveBeenCalledWith(tx, {
+      serverId: SERVER,
+      actorId: USER,
+      action: "role_add",
+      targetUserId: "t",
+      details: { roleId: ROLE, roleName: "DJ" },
+    });
+  });
+
   it("refuses a member from another server", async () => {
     role.findUnique.mockResolvedValue(roleRow());
-    serverMember.findUnique.mockResolvedValue({ id: MEMBER, serverId: "99999999-9999-9999-9999-999999999999" });
+    getMemberById.mockRejectedValue(notFound());
 
     await expect(roles.assign(SERVER, ROLE, MEMBER, USER)).rejects.toMatchObject({ status: 404 });
     expect(memberRole.upsert).not.toHaveBeenCalled();
@@ -162,6 +184,26 @@ describe("assign", () => {
   });
 });
 
+describe("unassign", () => {
+  it("removes the role and records role_remove", async () => {
+    role.findUnique.mockResolvedValue(roleRow());
+    getMemberById.mockResolvedValue({ id: MEMBER, serverId: SERVER, userId: "t" });
+
+    await roles.unassign(SERVER, ROLE, MEMBER, USER);
+
+    expect(memberRole.deleteMany).toHaveBeenCalledWith({ where: { memberId: MEMBER, roleId: ROLE } });
+    expect(record).toHaveBeenCalledWith(tx, expect.objectContaining({ action: "role_remove", targetUserId: "t" }));
+  });
+
+  it("404s a member of another server", async () => {
+    role.findUnique.mockResolvedValue(roleRow());
+    getMemberById.mockRejectedValue(notFound());
+
+    await expect(roles.unassign(SERVER, ROLE, MEMBER, USER)).rejects.toMatchObject({ status: 404 });
+    expect(memberRole.deleteMany).not.toHaveBeenCalled();
+  });
+});
+
 describe("setAdmin", () => {
   const OWNER = USER;
   const OTHER = "66666666-6666-6666-6666-666666666666";
@@ -170,7 +212,7 @@ describe("setAdmin", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     getById.mockResolvedValue({ id: SERVER, ownerId: OWNER });
-    serverMember.findUnique.mockResolvedValue({ id: MEMBER, serverId: SERVER, userId: OTHER });
+    getMemberById.mockResolvedValue({ id: MEMBER, serverId: SERVER, userId: OTHER });
     // The real has(): an ADMINISTRATOR role is recognised by its bit.
     has.mockImplementation((p, name) => (p & PERMISSIONS[name]) !== 0n);
   });
@@ -206,6 +248,7 @@ describe("setAdmin", () => {
     expect(memberRole.deleteMany).toHaveBeenCalledWith({
       where: { memberId: MEMBER, roleId: { in: ["admin-role", "boss"] } },
     });
+    expect(record).toHaveBeenCalledWith(tx, expect.objectContaining({ action: "admin_revoke", targetUserId: OTHER }));
   });
 
   it("lets only the owner make admins, even another admin cannot", async () => {
@@ -214,13 +257,13 @@ describe("setAdmin", () => {
   });
 
   it("409s on the owner, who is always an administrator", async () => {
-    serverMember.findUnique.mockResolvedValue({ id: MEMBER, serverId: SERVER, userId: OWNER });
+    getMemberById.mockResolvedValue({ id: MEMBER, serverId: SERVER, userId: OWNER });
 
     await expect(roles.setAdmin(SERVER, MEMBER, OWNER, false)).rejects.toMatchObject({ status: 409 });
   });
 
   it("404s a member of another server", async () => {
-    serverMember.findUnique.mockResolvedValue({ id: MEMBER, serverId: "other", userId: OTHER });
+    getMemberById.mockRejectedValue(notFound());
 
     await expect(roles.setAdmin(SERVER, MEMBER, OWNER, true)).rejects.toMatchObject({ status: 404 });
   });

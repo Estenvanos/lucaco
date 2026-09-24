@@ -1,3 +1,4 @@
+import type { ServerSettingsSection } from "../types/servers.types";
 import type { SettingsSection } from "../types/users.types";
 
 /**
@@ -22,6 +23,10 @@ export const ROUTES = {
   /** `:section` picks the settings tab; the bare path opens the profile. */
   settingsPattern: "/configuracoes/:section?",
   settings: (section: SettingsSection = "perfil") => `/configuracoes/${section}`,
+  /** A server's settings; its own prefix so it never competes with channelPattern. */
+  serverSettingsPattern: "/config-servidor/:serverId/:section?",
+  serverSettings: (serverId: string, section: ServerSettingsSection = "perfil") =>
+    `/config-servidor/${serverId}/${section}`,
   signIn: "/sign-in",
   signUp: "/sign-up",
 } as const;
