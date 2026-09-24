@@ -1,12 +1,30 @@
-import { useMe } from "../../services/users/users.api";
+import { HomeServers } from "../../components/home/HomeServers";
+import { ConversationsList } from "../../components/shared/ConversationsList";
+import { useHomePage } from "../../hooks/useHomePage";
 
 export function HomePage() {
-  const { data: me } = useMe();
+  const page = useHomePage();
 
   return (
-    <section className="card">
-      <h2>Olá, {me?.displayName ?? me?.username}</h2>
-      <p>Servers, DMs e o canal de voz entram aqui.</p>
-    </section>
+    <div className="home">
+      <h1>Olá, {page.me?.displayName ?? page.me?.username}</h1>
+
+      <div className="home-columns">
+        <section className="discover-section">
+          <h2>Mensagens diretas</h2>
+          <ConversationsList conversations={page.conversations} unread={page.unread} onOpen={page.openConversation} />
+        </section>
+
+        <section className="discover-section">
+          <h2>Seus servers</h2>
+          <HomeServers
+            servers={page.servers}
+            onOpen={page.openServer}
+            onDiscover={page.openDiscover}
+            onCreate={page.openNewServer}
+          />
+        </section>
+      </div>
+    </div>
   );
 }

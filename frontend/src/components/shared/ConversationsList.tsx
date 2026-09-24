@@ -1,7 +1,7 @@
 import { openContextMenu } from "../../lib/context-menu";
-import { initials } from "../../lib/utils";
+import { formatShortDateTime, initials, messagePreview } from "../../lib/utils";
 import type { ConversationsListProps } from "../../types/ui.types";
-import { UserActionsMenu } from "../shared/UserActionsMenu";
+import { UserActionsMenu } from "./UserActionsMenu";
 
 export function ConversationsList({ conversations, unread, onOpen }: ConversationsListProps) {
   if (conversations.length === 0) {
@@ -10,8 +10,9 @@ export function ConversationsList({ conversations, unread, onOpen }: Conversatio
 
   return (
     <ul className="inbox-list">
-      {conversations.map(({ peer, lastMessageAt }) => {
+      {conversations.map(({ peer, lastMessageAt, lastMessage }) => {
         const name = peer.displayName ?? peer.username;
+        const fromPeer = lastMessage?.senderId === peer.id;
         return (
           <li key={peer.id} onContextMenu={openContextMenu}>
             <button
@@ -24,10 +25,18 @@ export function ConversationsList({ conversations, unread, onOpen }: Conversatio
                 {peer.avatarUrl ? <img src={peer.avatarUrl} alt="" /> : initials(name)}
               </span>
               <span className="inbox-text">
-                <strong>{name}</strong>
-                <time dateTime={lastMessageAt}>
-                  Última mensagem {new Date(lastMessageAt).toLocaleString("pt-BR")}
-                </time>
+                <span className="conversation-head">
+                  <strong>{name}</strong>
+                  <time dateTime={lastMessageAt}>{formatShortDateTime(lastMessageAt)}</time>
+                </span>
+                <span className="conversation-preview">
+                  {lastMessage && !fromPeer && (
+                    <svg className="conversation-sent" viewBox="0 0 16 11" aria-label="Enviada por você">
+                      <path d="M1 5.5 4.5 9 11 2M6 8l1 1 7.5-7.5" />
+                    </svg>
+                  )}
+                  {messagePreview(lastMessage)}
+                </span>
               </span>
               {unread.has(peer.id) && <span className="unread-dot" title="Mensagens não lidas" />}
             </button>

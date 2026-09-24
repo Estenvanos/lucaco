@@ -111,9 +111,18 @@ export type KeyPrompt = {
   dismiss: () => void;
 };
 
+/** `GET /messages/conversations`: the last message still encrypted. */
+export type ConversationResponse = {
+  peer: UserProfile;
+  lastMessageAt: string;
+  lastMessage: StoredMessage;
+};
+
+/** A conversation with its last message decrypted; null when the chat key is not available. */
 export type Conversation = {
   peer: UserProfile;
   lastMessageAt: string;
+  lastMessage: ChatMessage | null;
 };
 
 /** What the composer sends: text, or a voice message / file already uploaded (its reference). */

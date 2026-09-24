@@ -218,20 +218,25 @@ export async function channelHistory(userId: string, { channelId, before, limit 
 }
 
 /**
- * Friends the user has already talked to, most recent first. Only the time of the last message:
- * the content is ciphertext, so there is no preview to give.
+ * Friends the user has already talked to, most recent first, each with its last message as
+ * ciphertext: the client decrypts it for the preview, the server never reads it.
  */
 export async function conversations(userId: string) {
   const friends = await friendsService.list(userId, { status: "accepted" });
   const byChannel = new Map(friends.map((f) => [dmId(userId, f.userId), f.user]));
   const last = await messages
-    .aggregate<{ _id: string; lastMessageAt: Date }>([
+    .aggregate<{ _id: string; last: MessageDoc }>([
       { $match: { channelId: { $in: [...byChannel.keys()] } } },
-      { $group: { _id: "$channelId", lastMessageAt: { $max: "$createdAt" } } },
-      { $sort: { lastMessageAt: -1 } },
+      { $sort: { createdAt: -1 } },
+      { $group: { _id: "$channelId", last: { $first: "$$ROOT" } } },
+      { $sort: { "last.createdAt": -1 } },
     ])
     .toArray();
-  return last.map(({ _id, lastMessageAt }) => ({ peer: byChannel.get(_id)!, lastMessageAt }));
+  return last.map(({ _id, last }) => ({
+    peer: byChannel.get(_id)!,
+    lastMessageAt: last.createdAt,
+    lastMessage: toPublicMessage(last),
+  }));
 }
 
 /**

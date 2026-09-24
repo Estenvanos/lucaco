@@ -22,9 +22,11 @@ export function ServerCard({ server, joining, onOpen }: ServerCardProps) {
         <span className="discover-card-body">
           <strong>{server.name}</strong>
           <span className="discover-card-description">{server.description ?? "Sem descrição."}</span>
-          <span className="discover-card-members">
-            {server.memberCount.toLocaleString("pt-BR")} {server.memberCount === 1 ? "membro" : "membros"}
-          </span>
+          {server.memberCount !== undefined && (
+            <span className="discover-card-members">
+              {server.memberCount.toLocaleString("pt-BR")} {server.memberCount === 1 ? "membro" : "membros"}
+            </span>
+          )}
         </span>
       </button>
     </li>

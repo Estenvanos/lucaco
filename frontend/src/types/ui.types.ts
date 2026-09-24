@@ -94,7 +94,8 @@ export type DiscoverNavProps = {
 };
 
 export type ServerCardProps = {
-  server: DiscoveredServer;
+  /** No `memberCount` (the home page's own servers): the members line is left out. */
+  server: PublicServer & Partial<Pick<DiscoveredServer, "memberCount">>;
   joining: boolean;
   onOpen: (serverId: string) => void;
 };
@@ -134,6 +135,13 @@ export type InboxListProps = {
   busy: string | null;
   onAccept: (userId: string) => void;
   onDecline: (userId: string) => void;
+};
+
+export type HomeServersProps = {
+  servers: PublicServer[];
+  onOpen: (serverId: string) => void;
+  onDiscover: () => void;
+  onCreate: () => void;
 };
 
 export type ConversationsListProps = {

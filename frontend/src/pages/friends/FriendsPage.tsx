@@ -1,5 +1,5 @@
 import { AddFriendForm } from "../../components/friends/AddFriendForm";
-import { ConversationsList } from "../../components/friends/ConversationsList";
+import { ConversationsList } from "../../components/shared/ConversationsList";
 import { FriendsTabs } from "../../components/friends/FriendsTabs";
 import { InboxList } from "../../components/friends/InboxList";
 import { SentRequestsList } from "../../components/friends/SentRequestsList";

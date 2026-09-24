@@ -3803,3 +3803,116 @@ form {
   height: 1.1rem;
 }
 
+
+/* ---------- home ---------- */
+
+/* Same full bleed as .discover, so the sections line up with its cards. */
+.home {
+  margin: -2rem;
+}
+
+.home h1 {
+  margin: 0;
+  padding: 2rem 2rem 0;
+}
+
+.home-empty {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.home-empty p {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+/* Direct messages on the left, servers on the right; one column on narrow screens. */
+.home-columns {
+  display: grid;
+  grid-template-columns: minmax(16rem, 22rem) 1fr;
+  align-items: start;
+}
+
+.home-columns > .discover-section + .discover-section {
+  border-left: 1px solid var(--line);
+}
+
+/* Smaller server cards than the discovery page. */
+.home .discover-grid {
+  grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
+  gap: 0.75rem;
+}
+
+.home .discover-card-banner {
+  height: 4rem;
+}
+
+.home .discover-card-icon {
+  width: 2.75rem;
+  height: 2.75rem;
+  margin: -1.4rem 0 0 0.75rem;
+  border-width: 3px;
+  border-radius: 10px;
+}
+
+.home .discover-card-body {
+  gap: 0.2rem;
+  padding: 0.4rem 0.75rem 0.75rem;
+}
+
+.home .discover-card-body strong {
+  font-size: 0.95rem;
+}
+
+.home .discover-card-description {
+  font-size: 0.85rem;
+  -webkit-line-clamp: 2;
+}
+
+@media (max-width: 900px) {
+  .home-columns {
+    grid-template-columns: 1fr;
+  }
+
+  .home-columns > .discover-section + .discover-section {
+    border-left: 0;
+    border-top: 1px solid var(--line);
+  }
+}
+
+/* Conversation row: name and short time on top, "who: last message" on one line below. */
+.conversation-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.conversation-head time {
+  flex: none;
+  margin: 0;
+}
+
+.conversation-preview {
+  display: block;
+  overflow: hidden;
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* WhatsApp-style double check: only on messages I sent. */
+.conversation-sent {
+  width: 1rem;
+  height: 0.7rem;
+  margin-right: 0.3rem;
+  vertical-align: -0.05rem;
+  fill: none;
+  stroke: var(--lime);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}

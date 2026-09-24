@@ -13,6 +13,29 @@ export const formatDate = (iso: string) => new Date(iso).toLocaleDateString("pt-
 export const formatDateTime = (iso: string) =>
   new Date(iso).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
 
+/** "14:03" today, "Ontem 14:03", "18/09 14:03" this year, "18/09/2025" before: the conversation list. */
+export function formatShortDateTime(iso: string) {
+  const date = new Date(iso);
+  const time = date.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  const today = new Date();
+  const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
+  if (date.toDateString() === today.toDateString()) return time;
+  if (date.toDateString() === yesterday.toDateString()) return `Ontem ${time}`;
+  if (date.getFullYear() === today.getFullYear())
+    return `${date.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })} ${time}`;
+  return date.toLocaleDateString("pt-BR");
+}
+
+/** One line for the conversation list: the text, or what kind of message it was. */
+export function messagePreview(message: ChatMessage | null) {
+  if (!message || message.text === null) return "Mensagem cifrada";
+  if (message.audio) return "Mensagem de voz";
+  if (message.attachment?.kind === "image") return "Imagem";
+  if (message.attachment?.kind === "video") return "Vídeo";
+  if (message.attachment) return message.attachment.name;
+  return message.text;
+}
+
 /** Messages closer than this, from the same sender, share one avatar + name header. */
 const GROUP_GAP_MS = 5 * 60 * 1000;
 

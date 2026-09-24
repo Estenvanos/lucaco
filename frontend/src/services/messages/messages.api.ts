@@ -10,6 +10,7 @@ import type {
   ChatMessage,
   ChatPage,
   Conversation,
+  ConversationResponse,
   HistoryResponse,
   MessageContentType,
   Outgoing,
@@ -19,11 +20,22 @@ import { channelKeyring, keyForEpoch } from "./messages.channel-e2e";
 import { chatKey, decryptMessage } from "./messages.e2e";
 import { messagesKeys } from "./messages.keys";
 
-export const useConversations = (enabled = true) =>
+/** Each conversation's last message decrypted here, for the preview; no key leaves it null. */
+export const useConversations = (me: string | undefined, enabled = true) =>
   useQuery({
     queryKey: messagesKeys.conversations(),
-    queryFn: () => request<Conversation[]>(ENDPOINTS.messages.conversations),
-    enabled,
+    queryFn: async (): Promise<Conversation[]> => {
+      const rows = await request<ConversationResponse[]>(ENDPOINTS.messages.conversations);
+      return Promise.all(
+        rows.map(async ({ lastMessage, ...row }) => ({
+          ...row,
+          lastMessage: await chatKey(me!, row.peer.id)
+            .then((key) => decryptMessage(key, lastMessage))
+            .catch(() => null),
+        })),
+      );
+    },
+    enabled: enabled && !!me,
   });
 
 /** Opening the chat reads it: clears the peer's unread notice (the red dot). */

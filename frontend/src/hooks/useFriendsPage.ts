@@ -7,6 +7,7 @@ import { useAcceptFriend, useDeclineFriend, useSendFriendRequest, useSentRequest
 import { NOTIFICATION_TAGS } from "../constants/notifications";
 import { useConversations } from "../services/messages/messages.api";
 import { useNotifications } from "../services/notifications/notifications.api";
+import { useMe } from "../services/users/users.api";
 import type { FriendsTab } from "../types/friends.types";
 import { useUnread } from "./useUnread";
 import { useZodForm } from "./useZodForm";
@@ -18,8 +19,9 @@ export function useFriendsPage() {
   // The inbox is friend requests only; everything else goes to the top bar's panel.
   const { data: inbox = [] } = useNotifications((n) => n.tag === NOTIFICATION_TAGS.friendRequest);
   const { data: sent = [] } = useSentRequests();
+  const { data: me } = useMe();
   const unread = useUnread();
-  const { data: conversations = [] } = useConversations(tab === "conversations");
+  const { data: conversations = [] } = useConversations(me?.id, tab === "conversations");
   const send = useSendFriendRequest();
   const accept = useAcceptFriend();
   const decline = useDeclineFriend();

@@ -222,11 +222,24 @@ describe("history", () => {
 describe("conversations", () => {
   const bob = { id: BOB, username: "bob", displayName: null, avatarUrl: null };
 
-  it("lists friends with messages, newest first, looking only at the user's DM channels", async () => {
+  it("lists friends with messages, newest first, with the last message still encrypted", async () => {
     list.mockResolvedValue([{ userId: BOB, user: bob }]);
     const lastMessageAt = new Date();
+    const last = {
+      _id: new ObjectId(),
+      channelId: service.dmId(ALICE, BOB),
+      scope: "dm",
+      senderId: BOB,
+      clientMessageId: "c1",
+      contentType: "text",
+      ciphertext: "opaque",
+      iv: "iv",
+      keyEpoch: null,
+      createdAt: lastMessageAt,
+      expiresAt: null,
+    };
     messages.aggregate.mockReturnValue({
-      toArray: mock().mockResolvedValue([{ _id: service.dmId(ALICE, BOB), lastMessageAt }]),
+      toArray: mock().mockResolvedValue([{ _id: service.dmId(ALICE, BOB), last }]),
     });
 
     const result = await service.conversations(ALICE);
@@ -234,7 +247,9 @@ describe("conversations", () => {
     expect(list).toHaveBeenCalledWith(ALICE, { status: "accepted" });
     const [match] = messages.aggregate.mock.calls[0]![0] as [{ $match: unknown }];
     expect(match).toEqual({ $match: { channelId: { $in: [service.dmId(ALICE, BOB)] } } });
-    expect(result).toEqual([{ peer: bob, lastMessageAt }]);
+    expect(result).toEqual([
+      { peer: bob, lastMessageAt, lastMessage: expect.objectContaining({ senderId: BOB, ciphertext: "opaque" }) },
+    ]);
   });
 });
 
